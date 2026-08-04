@@ -1,0 +1,78 @@
+import type { NodeKind, PaletteItem } from '@/types/nodes'
+import { NodeKinds } from '@/types/nodes'
+
+export function cn(...classes: Array<string | false | null | undefined>): string {
+  return classes.filter(Boolean).join(' ')
+}
+
+export function formatNumber(value: number, fractionDigits = 0): string {
+  return new Intl.NumberFormat('pt-BR', {
+    maximumFractionDigits: fractionDigits,
+    minimumFractionDigits: fractionDigits,
+  }).format(value)
+}
+
+export function formatPercent(value: number): string {
+  return `${formatNumber(value, 1)}%`
+}
+
+export function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value))
+}
+
+export function createId(prefix: string): string {
+  return `${prefix}-${crypto.randomUUID().slice(0, 8)}`
+}
+
+export const NODE_PALETTE: readonly PaletteItem[] = [
+  {
+    kind: NodeKinds.ApiGateway,
+    label: 'API Gateway',
+    description: 'Load balancer / ingress com RPS',
+    accent: 'cyan',
+  },
+  {
+    kind: NodeKinds.Redis,
+    label: 'Redis Cache',
+    description: 'Cache em memória — Hit/Miss',
+    accent: 'rose',
+  },
+  {
+    kind: NodeKinds.RabbitMQ,
+    label: 'RabbitMQ',
+    description: 'Fila de mensagens assíncronas',
+    accent: 'amber',
+  },
+  {
+    kind: NodeKinds.Postgres,
+    label: 'PostgreSQL',
+    description: 'Banco relacional — latência',
+    accent: 'sky',
+  },
+  {
+    kind: NodeKinds.Worker,
+    label: 'Worker',
+    description: 'Microsserviço com circuit breaker',
+    accent: 'emerald',
+  },
+] as const
+
+export function healthFromThreshold(
+  value: number,
+  warningAt: number,
+  criticalAt: number,
+  higherIsWorse = true,
+): 'healthy' | 'warning' | 'critical' {
+  if (higherIsWorse) {
+    if (value >= criticalAt) return 'critical'
+    if (value >= warningAt) return 'warning'
+    return 'healthy'
+  }
+  if (value <= criticalAt) return 'critical'
+  if (value <= warningAt) return 'warning'
+  return 'healthy'
+}
+
+export function kindLabel(kind: NodeKind): string {
+  return NODE_PALETTE.find((item) => item.kind === kind)?.label ?? kind
+}

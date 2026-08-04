@@ -1,0 +1,96 @@
+@import 'tailwindcss';
+@import '@xyflow/react/dist/style.css';
+
+@theme {
+  --font-sans: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+  --font-display: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+  --color-hf-bg: #020617;
+  --color-hf-panel: #0f172a;
+  --color-hf-accent: #22d3ee;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    font-family: var(--font-sans);
+    background-color: var(--color-hf-bg);
+    color: #e2e8f0;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #334155;
+    border-radius: 999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #475569;
+  }
+}
+
+@layer utilities {
+  .font-display {
+    font-family: var(--font-display);
+  }
+
+  .animate-spin-slow {
+    animation: spin 3.5s linear infinite;
+  }
+}
+
+/* React Flow theme overrides */
+.react-flow__controls-button {
+  background: #0f172a !important;
+  border-bottom-color: #1e293b !important;
+  fill: #94a3b8 !important;
+}
+
+.react-flow__controls-button:hover {
+  background: #1e293b !important;
+}
+
+.react-flow__minimap {
+  background: #020617 !important;
+}
+
+.hf-edge-pulse {
+  stroke-dasharray: 6 4;
+  animation: hf-dash 0.6s linear infinite;
+}
+
+.hf-canvas-load .react-flow__edge-path {
+  filter: drop-shadow(0 0 4px rgba(34, 211, 238, 0.35));
+}
+
+@keyframes hf-dash {
+  to {
+    stroke-dashoffset: -20;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
