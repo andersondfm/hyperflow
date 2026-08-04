@@ -144,6 +144,37 @@ src/
 
 ---
 
+## Deploy com Docker (DigitalOcean)
+
+Imagem multi-stage: build com Node 22 → serve estático com Nginx.
+
+### Local
+
+```bash
+docker build -t hyperflow .
+docker run --rm -p 8080:80 hyperflow
+# ou
+docker compose up --build
+```
+
+Abra `http://localhost:8080`.
+
+### DigitalOcean App Platform
+
+1. Conecte o repositório no App Platform
+2. Tipo: **Dockerfile**
+3. HTTP Port: **80**
+4. Health check path: `/health`
+
+### Droplet / Container Registry
+
+```bash
+docker build -t registry.digitalocean.com/<SEU_REGISTRY>/hyperflow:latest .
+docker push registry.digitalocean.com/<SEU_REGISTRY>/hyperflow:latest
+```
+
+---
+
 ## Roadmap sugerido
 
 - [ ] Persistência da topologia (localStorage / export JSON)
