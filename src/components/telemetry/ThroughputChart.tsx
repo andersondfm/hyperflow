@@ -1,7 +1,8 @@
 import { useMemo } from 'react'
 import { useSimulationStore } from '@/store/simulationStore'
 import { formatNumber } from '@/lib/utils'
-import type { RabbitMQMetrics, PostgresMetrics, RedisMetrics } from '@/types/nodes'
+import { NodeKinds } from '@/types/nodes'
+import { findMetricsByKind, hottestRabbitMetrics } from '@/lib/simulationEngine'
 
 export function ThroughputChart() {
   const history = useSimulationStore((s) => s.throughputHistory)
@@ -67,15 +68,18 @@ export function ThroughputChart() {
 
 export function MetricCards() {
   const nodeMetrics = useSimulationStore((s) => s.nodeMetrics)
-  const redis = nodeMetrics['redis-1'] as RedisMetrics | undefined
-  const rabbit = nodeMetrics['rabbitmq-1'] as RabbitMQMetrics | undefined
-  const postgres = nodeMetrics['postgres-1'] as PostgresMetrics | undefined
+  const nodeKinds = useSimulationStore((s) => s.nodeKinds)
+  const deadLetters = useSimulationStore((s) => s.deadLetters)
+  const redis = findMetricsByKind(nodeMetrics, nodeKinds, NodeKinds.Redis)
+  const rabbit = hottestRabbitMetrics(nodeMetrics, nodeKinds)
+  const postgres = findMetricsByKind(nodeMetrics, nodeKinds, NodeKinds.Postgres)
 
   const cards = [
     {
       label: 'Redis Hit',
       value: redis ? `${redis.hitRate.toFixed(1)}%` : '—',
       hint: 'cache efficiency',
+      alert: (redis?.hitRate ?? 100) < 55,
     },
     {
       label: 'Queue Depth',
@@ -89,10 +93,16 @@ export function MetricCards() {
       hint: 'p50 aproximado',
       alert: (postgres?.latencyMs ?? 0) > 80,
     },
+    {
+      label: 'Mensagens mortas',
+      value: formatNumber(deadLetters),
+      hint: 'DLQ',
+      alert: deadLetters >= 80,
+    },
   ]
 
   return (
-    <div className="grid grid-cols-3 gap-2">
+    <div className="grid grid-cols-2 gap-2">
       {cards.map((card) => (
         <div
           key={card.label}

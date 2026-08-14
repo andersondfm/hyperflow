@@ -1,11 +1,11 @@
 import type { NodeProps } from '@xyflow/react'
 import { Cylinder } from 'lucide-react'
 import type { HyperFlowNodeData, PostgresMetrics } from '@/types/nodes'
+import { ChaosFaults, NodeKinds } from '@/types/nodes'
 import { useSimulationStore } from '@/store/simulationStore'
 import { formatNumber, formatPercent } from '@/lib/utils'
 import { computeHealth } from '@/lib/simulationEngine'
-import { NodeKinds } from '@/types/nodes'
-import { BaseNode, Meter, MetricRow } from './BaseNode'
+import { BaseNode, ChaosActions, Meter, MetricRow } from './BaseNode'
 
 export function PostgresNode({ id, data }: NodeProps) {
   const nodeData = data as HyperFlowNodeData
@@ -20,12 +20,14 @@ export function PostgresNode({ id, data }: NodeProps) {
 
   return (
     <BaseNode
+      id={id}
       title={nodeData.label}
       subtitle="Relational Store"
       health={health}
       accentClass="bg-sky-400"
       icon={<Cylinder className="h-4.5 w-4.5" strokeWidth={2.25} />}
       isLoadActive={isLoadActive}
+      footer={<ChaosActions nodeId={id} fault={ChaosFaults.Down} injectLabel="Simular falha" />}
     >
       <MetricRow
         label="Latência"

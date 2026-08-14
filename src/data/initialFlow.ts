@@ -77,6 +77,17 @@ export const initialNodes: HyperFlowNode[] = [
       },
     },
   },
+  {
+    id: 'dlq-1',
+    type: NodeKinds.Dlq,
+    position: { x: 980, y: 40 },
+    data: {
+      label: 'Dead Letter Queue',
+      kind: NodeKinds.Dlq,
+      health: HealthLevels.Healthy,
+      metrics: baseline.dlq,
+    },
+  },
 ]
 
 export const initialEdges: Edge[] = [
@@ -120,6 +131,13 @@ export const initialEdges: Edge[] = [
     source: 'worker-orders',
     target: 'postgres-1',
     type: 'animated',
+    animated: false,
+  },
+  {
+    id: 'e-rmq-dlq',
+    source: 'rabbitmq-1',
+    target: 'dlq-1',
+    type: 'dashed-fault',
     animated: false,
   },
 ]

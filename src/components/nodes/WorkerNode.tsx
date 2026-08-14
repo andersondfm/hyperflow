@@ -1,11 +1,11 @@
 import type { NodeProps } from '@xyflow/react'
 import { Cog } from 'lucide-react'
 import type { HyperFlowNodeData, WorkerMetrics } from '@/types/nodes'
-import { CircuitStates, NodeKinds } from '@/types/nodes'
+import { ChaosFaults, CircuitStates, NodeKinds } from '@/types/nodes'
 import { useSimulationStore } from '@/store/simulationStore'
 import { formatNumber, cn } from '@/lib/utils'
 import { computeHealth } from '@/lib/simulationEngine'
-import { BaseNode, Meter, MetricRow } from './BaseNode'
+import { BaseNode, ChaosActions, Meter, MetricRow } from './BaseNode'
 
 const circuitLabel: Record<WorkerMetrics['circuitBreaker'], string> = {
   [CircuitStates.Closed]: 'Closed',
@@ -31,12 +31,14 @@ export function WorkerNode({ id, data }: NodeProps) {
 
   return (
     <BaseNode
+      id={id}
       title={nodeData.label}
       subtitle="Microservice Worker"
       health={health}
       accentClass="bg-emerald-400"
       icon={<Cog className={cn('h-4.5 w-4.5', metrics.active && 'animate-spin-slow')} strokeWidth={2.25} />}
       isLoadActive={isLoadActive}
+      footer={<ChaosActions nodeId={id} fault={ChaosFaults.Down} injectLabel="Isolar worker" />}
     >
       <div className="flex items-center justify-between gap-2">
         <span className="font-mono text-[10px] uppercase tracking-wide text-slate-500">

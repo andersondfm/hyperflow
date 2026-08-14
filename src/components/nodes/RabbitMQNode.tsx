@@ -28,6 +28,7 @@ export function RabbitMQNode({ id, data }: NodeProps) {
 
   return (
     <BaseNode
+      id={id}
       title={nodeData.label}
       subtitle="Message Broker"
       health={health}
@@ -42,7 +43,7 @@ export function RabbitMQNode({ id, data }: NodeProps) {
             'animate-pulse font-mono text-[10px] font-semibold uppercase tracking-wide text-rose-300',
           )}
         >
-          ⚠ Overflow — fila estourada
+          Overflow — fila estourada
         </div>
       )}
       <MetricRow

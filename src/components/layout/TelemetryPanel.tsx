@@ -1,5 +1,6 @@
 import { MetricCards, ThroughputChart } from '@/components/telemetry/ThroughputChart'
 import { LogStream } from '@/components/telemetry/LogStream'
+import { FinOpsCard } from '@/components/telemetry/FinOpsCard'
 
 export function TelemetryPanel() {
   return (
@@ -14,6 +15,7 @@ export function TelemetryPanel() {
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-3">
+        <FinOpsCard variant="full" />
         <MetricCards />
         <ThroughputChart />
         <div className="min-h-0 flex-1">

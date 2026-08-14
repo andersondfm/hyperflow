@@ -1,13 +1,16 @@
-import { Activity, RotateCcw, Zap } from 'lucide-react'
+import { Activity, RotateCcw, Skull, Zap } from 'lucide-react'
 import { useSimulationStore } from '@/store/simulationStore'
 import { formatNumber, cn } from '@/lib/utils'
+import { FinOpsCard } from '@/components/telemetry/FinOpsCard'
 
 export function Header() {
   const isLoadTestActive = useSimulationStore((s) => s.isLoadTestActive)
   const totalRps = useSimulationStore((s) => s.totalRps)
+  const chaosCount = useSimulationStore((s) => Object.keys(s.failedNodeIds).length)
   const triggerLoadSpike = useSimulationStore((s) => s.triggerLoadSpike)
   const stopLoadSpike = useSimulationStore((s) => s.stopLoadSpike)
   const resetSimulation = useSimulationStore((s) => s.resetSimulation)
+  const clearAllChaos = useSimulationStore((s) => s.clearAllChaos)
 
   return (
     <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-800 bg-slate-950/90 px-4 backdrop-blur-md">
@@ -25,7 +28,7 @@ export function Header() {
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2.5">
         <div className="hidden items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-1.5 sm:flex">
           <span className="font-mono text-[10px] uppercase tracking-wider text-slate-500">
             Throughput
@@ -39,6 +42,22 @@ export function Header() {
             {formatNumber(totalRps)} RPS
           </span>
         </div>
+
+        <div className="hidden md:block">
+          <FinOpsCard variant="compact" />
+        </div>
+
+        {chaosCount > 0 && (
+          <button
+            type="button"
+            onClick={clearAllChaos}
+            title="Restaurar todas as falhas"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/40 bg-rose-500/15 px-2.5 py-1.5 text-xs font-semibold text-rose-200 transition hover:bg-rose-500/25"
+          >
+            <Skull className="h-3.5 w-3.5" />
+            Chaos · {chaosCount}
+          </button>
+        )}
 
         <button
           type="button"

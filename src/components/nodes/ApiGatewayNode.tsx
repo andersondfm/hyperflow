@@ -22,6 +22,7 @@ export function ApiGatewayNode({ id, data }: NodeProps) {
 
   return (
     <BaseNode
+      id={id}
       title={nodeData.label}
       subtitle="Load Balancer · Ingress"
       health={health}

@@ -1,4 +1,4 @@
-import type { NodeKind, PaletteItem } from '@/types/nodes'
+import type { ChaosFault, NodeKind, PaletteItem } from '@/types/nodes'
 import { NodeKinds } from '@/types/nodes'
 
 export function cn(...classes: Array<string | false | null | undefined>): string {
@@ -16,12 +16,25 @@ export function formatPercent(value: number): string {
   return `${formatNumber(value, 1)}%`
 }
 
+export function formatBRL(value: number): string {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value)
+}
+
 export function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
 
 export function createId(prefix: string): string {
   return `${prefix}-${crypto.randomUUID().slice(0, 8)}`
+}
+
+export function isNodeKind(value: string): value is NodeKind {
+  return (Object.values(NodeKinds) as string[]).includes(value)
 }
 
 export const NODE_PALETTE: readonly PaletteItem[] = [
@@ -55,6 +68,30 @@ export const NODE_PALETTE: readonly PaletteItem[] = [
     description: 'Microsserviço com circuit breaker',
     accent: 'emerald',
   },
+  {
+    kind: NodeKinds.Container,
+    label: 'Réplica / Container',
+    description: 'Réplica k8s — sobe capacidade',
+    accent: 'teal',
+  },
+  {
+    kind: NodeKinds.IntegrationTest,
+    label: 'Teste Integrado',
+    description: 'CI — status e cobertura',
+    accent: 'violet',
+  },
+  {
+    kind: NodeKinds.Sonar,
+    label: 'SonarQube',
+    description: 'Quality gate — bugs e vulns',
+    accent: 'orange',
+  },
+  {
+    kind: NodeKinds.Dlq,
+    label: 'Dead Letter Queue',
+    description: 'Mensagens mortas — requeue',
+    accent: 'red',
+  },
 ] as const
 
 export function healthFromThreshold(
@@ -75,4 +112,23 @@ export function healthFromThreshold(
 
 export function kindLabel(kind: NodeKind): string {
   return NODE_PALETTE.find((item) => item.kind === kind)?.label ?? kind
+}
+
+export type CostTone = 'cyan' | 'amber' | 'rose'
+
+export function costTone(cost: number, isSpike: boolean): CostTone {
+  if (cost >= 70) return 'rose'
+  if (isSpike || cost >= 28) return 'amber'
+  return 'cyan'
+}
+
+export function faultLabel(fault: ChaosFault): string {
+  switch (fault) {
+    case 'down':
+      return 'DOWN'
+    case 'oom':
+      return 'OOM'
+    case 'timeout':
+      return 'TIMEOUT'
+  }
 }

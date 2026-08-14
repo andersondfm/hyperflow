@@ -1,11 +1,11 @@
 import type { NodeProps } from '@xyflow/react'
 import { DatabaseZap } from 'lucide-react'
 import type { HyperFlowNodeData, RedisMetrics } from '@/types/nodes'
+import { ChaosFaults, NodeKinds } from '@/types/nodes'
 import { useSimulationStore } from '@/store/simulationStore'
 import { formatNumber, formatPercent } from '@/lib/utils'
 import { computeHealth } from '@/lib/simulationEngine'
-import { NodeKinds } from '@/types/nodes'
-import { BaseNode, Meter, MetricRow } from './BaseNode'
+import { BaseNode, ChaosActions, Meter, MetricRow } from './BaseNode'
 
 export function RedisNode({ id, data }: NodeProps) {
   const nodeData = data as HyperFlowNodeData
@@ -18,12 +18,14 @@ export function RedisNode({ id, data }: NodeProps) {
 
   return (
     <BaseNode
+      id={id}
       title={nodeData.label}
       subtitle="In-Memory Cache"
       health={health}
       accentClass="bg-rose-400"
       icon={<DatabaseZap className="h-4.5 w-4.5" strokeWidth={2.25} />}
       isLoadActive={isLoadActive}
+      footer={<ChaosActions nodeId={id} fault={ChaosFaults.Oom} injectLabel="Estourar memória" />}
     >
       <MetricRow
         label="Hit rate"

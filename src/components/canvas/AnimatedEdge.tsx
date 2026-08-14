@@ -54,6 +54,58 @@ export function AnimatedEdge({
   )
 }
 
+/** Aresta tracejada vermelha RabbitMQ → DLQ. */
+export function DashedFaultEdge({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  style,
+  markerEnd,
+}: EdgeProps) {
+  const isLoadActive = useSimulationStore((s) => s.isLoadTestActive)
+  const deadLetters = useSimulationStore((s) => s.deadLetters)
+  const intense = deadLetters > 0 || isLoadActive
+  const [edgePath] = getBezierPath({
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+    sourcePosition,
+    targetPosition,
+  })
+
+  return (
+    <>
+      <BaseEdge
+        id={id}
+        path={edgePath}
+        {...(markerEnd !== undefined ? { markerEnd } : {})}
+        style={{
+          ...style,
+          stroke: intense ? '#fb7185' : '#9f1239',
+          strokeWidth: intense ? 2.4 : 1.7,
+        }}
+        className={cn('hf-dlq-edge', intense && 'hf-dlq-edge-hot')}
+      />
+      {intense && (
+        <>
+          <circle r="3.5" fill="#fb7185">
+            <animateMotion dur="1.4s" repeatCount="indefinite" path={edgePath} />
+          </circle>
+          <circle r="2.2" fill="#fecdd3" opacity="0.75">
+            <animateMotion dur="1.4s" begin="0.45s" repeatCount="indefinite" path={edgePath} />
+          </circle>
+        </>
+      )}
+    </>
+  )
+}
+
 export const edgeTypes = {
   animated: AnimatedEdge,
+  'dashed-fault': DashedFaultEdge,
 } as const

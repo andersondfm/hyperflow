@@ -5,6 +5,10 @@ export const NodeKinds = {
   RabbitMQ: 'rabbitmq',
   Postgres: 'postgres',
   Worker: 'worker',
+  Container: 'container',
+  IntegrationTest: 'integrationTest',
+  Sonar: 'sonar',
+  Dlq: 'dlq',
 } as const
 
 export type NodeKind = (typeof NodeKinds)[keyof typeof NodeKinds]
@@ -24,6 +28,29 @@ export const CircuitStates = {
 } as const
 
 export type CircuitState = (typeof CircuitStates)[keyof typeof CircuitStates]
+
+export const ChaosFaults = {
+  Down: 'down',
+  Oom: 'oom',
+  Timeout: 'timeout',
+} as const
+
+export type ChaosFault = (typeof ChaosFaults)[keyof typeof ChaosFaults]
+
+export const TestRunStatuses = {
+  Pass: 'pass',
+  Fail: 'fail',
+  Running: 'running',
+} as const
+
+export type TestRunStatus = (typeof TestRunStatuses)[keyof typeof TestRunStatuses]
+
+export const QualityGates = {
+  Ok: 'OK',
+  Failed: 'FAILED',
+} as const
+
+export type QualityGate = (typeof QualityGates)[keyof typeof QualityGates]
 
 export interface ApiGatewayMetrics {
   requestsPerSecond: number
@@ -59,12 +86,38 @@ export interface WorkerMetrics {
   errorCount: number
 }
 
+export interface ContainerMetrics {
+  replicas: number
+  cpuPercent: number
+  processedPerSecond: number
+}
+
+export interface IntegrationTestMetrics {
+  lastRunStatus: TestRunStatus
+  coveragePercent: number
+}
+
+export interface SonarMetrics {
+  bugs: number
+  vulnerabilities: number
+  qualityGate: QualityGate
+}
+
+export interface DlqMetrics {
+  deadLetters: number
+  lastReason: string
+}
+
 export type NodeMetricsMap = {
   [NodeKinds.ApiGateway]: ApiGatewayMetrics
   [NodeKinds.Redis]: RedisMetrics
   [NodeKinds.RabbitMQ]: RabbitMQMetrics
   [NodeKinds.Postgres]: PostgresMetrics
   [NodeKinds.Worker]: WorkerMetrics
+  [NodeKinds.Container]: ContainerMetrics
+  [NodeKinds.IntegrationTest]: IntegrationTestMetrics
+  [NodeKinds.Sonar]: SonarMetrics
+  [NodeKinds.Dlq]: DlqMetrics
 }
 
 export interface HyperFlowNodeData extends Record<string, unknown> {
@@ -86,6 +139,7 @@ export interface ThroughputSample {
   rps: number
   queueDepth: number
   latencyMs: number
+  costPerHour: number
 }
 
 export interface SimulationLog {
@@ -100,7 +154,11 @@ export interface SimulationSnapshot {
   isLoadTestActive: boolean
   loadMultiplier: number
   totalRps: number
+  estimatedCostPerHour: number
+  deadLetters: number
   throughputHistory: ThroughputSample[]
   logs: SimulationLog[]
   nodeMetrics: Record<string, NodeMetricsMap[NodeKind]>
+  nodeKinds: Record<string, NodeKind>
+  failedNodeIds: Record<string, ChaosFault>
 }
