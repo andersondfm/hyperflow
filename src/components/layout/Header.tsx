@@ -2,6 +2,7 @@ import { Activity, RotateCcw, Shield, Skull, Zap } from 'lucide-react'
 import { useSimulationStore } from '@/store/simulationStore'
 import { formatNumber, cn } from '@/lib/utils'
 import { FinOpsCard } from '@/components/telemetry/FinOpsCard'
+import { ViewTabs } from '@/components/layout/ViewTabs'
 import { countActiveMitigations } from '@/lib/mitigations'
 
 export function Header() {
@@ -29,6 +30,9 @@ export function Header() {
           <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-slate-500">
             Distributed Systems Simulator
           </p>
+        </div>
+        <div className="ml-1 hidden md:block">
+          <ViewTabs />
         </div>
       </div>
 
