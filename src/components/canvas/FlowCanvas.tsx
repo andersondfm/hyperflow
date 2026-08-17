@@ -182,7 +182,7 @@ function FlowCanvasInner() {
         </div>
       </div>
 
-      <div className="pointer-events-none absolute right-4 top-4 z-10 w-72">
+      <div className="pointer-events-none absolute right-4 top-4 z-10">
         <div className="pointer-events-auto">
           <MitigationPlaybook />
         </div>
