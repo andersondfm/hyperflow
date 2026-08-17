@@ -9,6 +9,8 @@ interface StageCardProps {
   state: StageState
   note?: string
   detail?: string
+  /** Marca etapas que rodam fora do tempo da resposta HTTP. */
+  badge?: string
   selected: boolean
   onSelect: () => void
 }
@@ -44,6 +46,7 @@ export function StageCard({
   state,
   note,
   detail,
+  badge,
   selected,
   onSelect,
 }: StageCardProps) {
@@ -73,7 +76,14 @@ export function StageCard({
         >
           {icon}
         </div>
-        <span className={cn('mt-1 h-1.5 w-1.5 shrink-0 rounded-full', stateDot[state])} />
+        <div className="flex items-center gap-1.5">
+          {badge && (
+            <span className="rounded border border-violet-500/40 bg-violet-500/10 px-1 py-0.5 font-mono text-[8px] font-semibold uppercase tracking-wider text-violet-300">
+              {badge}
+            </span>
+          )}
+          <span className={cn('mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full', stateDot[state])} />
+        </div>
       </div>
 
       <p className="mt-1.5 truncate font-display text-[12px] font-semibold text-slate-100">

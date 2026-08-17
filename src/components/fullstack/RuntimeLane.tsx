@@ -11,8 +11,15 @@ import {
   Share2,
   Timer,
 } from 'lucide-react'
-import type { LayerIconKey } from '@/data/fullstackProfile'
-import { PROFILE, RUNTIME_LAYERS, RequestKinds } from '@/data/fullstackProfile'
+import { useMemo } from 'react'
+import type { LayerIconKey, WriteStrategy } from '@/data/fullstackProfile'
+import {
+  PROFILE,
+  RUNTIME_LAYERS,
+  RequestKinds,
+  WRITE_STRATEGY_META,
+  WriteStrategies,
+} from '@/data/fullstackProfile'
 import { StageStates, useDeliveryStore } from '@/store/deliveryStore'
 import { StageCard, StageConnector } from '@/components/fullstack/StageCard'
 import { cn } from '@/lib/utils'
@@ -33,14 +40,29 @@ export function RuntimeLane() {
   const layerStates = useDeliveryStore((s) => s.layerStates)
   const layerNotes = useDeliveryStore((s) => s.layerNotes)
   const layerMs = useDeliveryStore((s) => s.layerMs)
+  const layerPhase = useDeliveryStore((s) => s.layerPhase)
+  const responseMs = useDeliveryStore((s) => s.responseMs)
   const totalMs = useDeliveryStore((s) => s.totalMs)
   const running = useDeliveryStore((s) => s.running)
   const cacheWarm = useDeliveryStore((s) => s.cacheWarm)
   const insightCached = useDeliveryStore((s) => s.insightCached)
   const requestKind = useDeliveryStore((s) => s.requestKind)
   const selectedId = useDeliveryStore((s) => s.selectedId)
+  const runOrder = useDeliveryStore((s) => s.runOrder)
+  const writeStrategy = useDeliveryStore((s) => s.writeStrategy)
   const runRequest = useDeliveryStore((s) => s.runRequest)
+  const setWriteStrategy = useDeliveryStore((s) => s.setWriteStrategy)
   const select = useDeliveryStore((s) => s.select)
+
+  const orderedLayers = useMemo(() => {
+    const byId = new Map(RUNTIME_LAYERS.map((layer) => [layer.id, layer]))
+    const ordered = runOrder.flatMap((id) => {
+      const layer = byId.get(id)
+      return layer ? [layer] : []
+    })
+    const seen = new Set(runOrder)
+    return [...ordered, ...RUNTIME_LAYERS.filter((layer) => !seen.has(layer.id))]
+  }, [runOrder])
 
   return (
     <section className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
@@ -58,19 +80,27 @@ export function RuntimeLane() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900/60 px-2.5 py-1.5">
+          <div
+            className="flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900/60 px-2.5 py-1.5"
+            title="Resposta é o que o usuário espera. O resto propaga fora do request."
+          >
             <Timer className="h-3.5 w-3.5 text-slate-500" />
             <span className="font-mono text-[10px] uppercase tracking-wider text-slate-500">
-              Latência
+              Resposta
             </span>
             <span
               className={cn(
                 'font-mono text-sm font-semibold tabular-nums',
-                totalMs > 0 && totalMs <= 30 ? 'text-emerald-300' : 'text-cyan-300',
+                responseMs > 0 && responseMs <= 30 ? 'text-emerald-300' : 'text-cyan-300',
               )}
             >
-              {totalMs > 0 ? `${totalMs} ms` : '—'}
+              {responseMs > 0 ? `${responseMs} ms` : '—'}
             </span>
+            {totalMs > responseMs && (
+              <span className="font-mono text-[10px] tabular-nums text-violet-300">
+                +{totalMs - responseMs} ms async
+              </span>
+            )}
           </div>
 
           <div
@@ -133,8 +163,57 @@ export function RuntimeLane() {
         </div>
       </div>
 
+      <div className="mb-2.5 flex flex-wrap items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/40 px-2.5 py-2">
+        <span className="font-mono text-[10px] uppercase tracking-wider text-slate-500">
+          Estratégia da escrita
+        </span>
+        <div className="flex items-center gap-1 rounded-md border border-slate-800 bg-slate-950/60 p-0.5">
+          {(
+            [WriteStrategies.Outbox, WriteStrategies.QueueFirst] as readonly WriteStrategy[]
+          ).map((option) => {
+            const meta = WRITE_STRATEGY_META[option]
+            return (
+              <button
+                key={option}
+                type="button"
+                disabled={running}
+                onClick={() => setWriteStrategy(option)}
+                title={meta.hint}
+                className={cn(
+                  'rounded px-2 py-1 font-mono text-[10px] font-semibold uppercase tracking-wider transition',
+                  writeStrategy === option
+                    ? 'bg-amber-400 text-slate-950'
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100',
+                  running && 'cursor-not-allowed opacity-60',
+                )}
+              >
+                {meta.label} · {meta.status}
+                {meta.recommended && (
+                  <span
+                    className={cn(
+                      'ml-1 normal-case',
+                      writeStrategy === option ? 'text-slate-800' : 'text-emerald-400/80',
+                    )}
+                  >
+                    ★
+                  </span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+        <p className="min-w-0 flex-1 text-[10px] leading-snug text-slate-500">
+          {WRITE_STRATEGY_META[writeStrategy].recommended && (
+            <span className="mr-1 font-mono uppercase tracking-wider text-emerald-400/80">
+              ★ recomendado
+            </span>
+          )}
+          {WRITE_STRATEGY_META[writeStrategy].hint}
+        </p>
+      </div>
+
       <div className="flex flex-wrap items-stretch gap-y-2">
-        {RUNTIME_LAYERS.map((layer, index) => {
+        {orderedLayers.map((layer, index) => {
           const Icon = ICONS[layer.icon]
           const state = layerStates[layer.id] ?? StageStates.Idle
           const inScope = requestKind ? layer.kinds.includes(requestKind) : true
@@ -154,6 +233,7 @@ export function RuntimeLane() {
                 }
                 {...(layerNotes[layer.id] ? { note: layerNotes[layer.id] } : {})}
                 {...(ms !== undefined ? { detail: `${ms} ms` } : {})}
+                {...(layerPhase[layer.id] === 'async' ? { badge: 'async' } : {})}
                 selected={selectedId === layer.id}
                 onSelect={() => select(layer.id)}
               />

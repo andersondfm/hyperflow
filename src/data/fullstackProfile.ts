@@ -51,6 +51,32 @@ export const RequestKinds = {
 
 export type RequestKind = (typeof RequestKinds)[keyof typeof RequestKinds]
 
+/** Duas formas honestas de fazer a escrita — cada uma promete uma resposta diferente. */
+export const WriteStrategies = {
+  Outbox: 'outbox',
+  QueueFirst: 'queueFirst',
+} as const
+
+export type WriteStrategy = (typeof WriteStrategies)[keyof typeof WriteStrategies]
+
+export const WRITE_STRATEGY_META: Record<
+  WriteStrategy,
+  { label: string; status: string; hint: string; recommended: boolean }
+> = {
+  [WriteStrategies.Outbox]: {
+    label: 'Outbox',
+    status: '201',
+    hint: 'Padrão de mercado: commit e evento na mesma transação. Cliente recebe o ID na hora; projeção e cache saem fora do tempo da resposta.',
+    recommended: true,
+  },
+  [WriteStrategies.QueueFirst]: {
+    label: 'Fila primeiro',
+    status: '202',
+    hint: 'Quando o requisito é absorver pico ou sobreviver a banco lento. Cliente recebe protocolo, não ID — precisa de endpoint de status.',
+    recommended: false,
+  },
+}
+
 export type LayerIconKey =
   | 'react'
   | 'api'
@@ -191,9 +217,11 @@ export const RUNTIME_LAYERS: readonly RuntimeLayer[] = [
     baseMs: 6,
     kinds: [RequestKinds.Write],
     bullets: [
-      'Evento publicado depois do commit, via outbox — não perco mensagem',
+      'Publicar antes do commit é evento fantasma: anuncia o que talvez não exista',
+      'Outbox grava o evento na mesma transação do dado — depois o dispatcher publica',
       'Consumidor idempotente: reprocessar não duplica efeito',
       'RabbitMQ para trabalho por fila; Kafka quando preciso de replay e ordem por partição',
+      'Fila primeiro é o oposto: aceito, devolvo 202 e o worker persiste — absorve pico',
       'DLQ com política de retry — mensagem ruim não trava o consumidor',
     ],
     cloud: {

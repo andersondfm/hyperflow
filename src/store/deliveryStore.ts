@@ -6,8 +6,10 @@ import {
   QUALITY_GATE,
   RUNTIME_LAYERS,
   RequestKinds,
+  WriteStrategies,
   type CloudProvider,
   type RequestKind,
+  type WriteStrategy,
 } from '@/data/fullstackProfile'
 import { createId } from '@/lib/utils'
 
@@ -33,15 +35,26 @@ interface RunStep {
   ms: number
   note: string
   log: Omit<DeliveryLog, 'id'>
+  /** Etapa que roda fora do tempo da resposta HTTP. */
+  async?: boolean
 }
+
+export type RunPhase = 'sync' | 'async'
 
 interface DeliveryState {
   cloud: CloudProvider
   requestKind: RequestKind | null
+  writeStrategy: WriteStrategy
   running: boolean
+  /** Ordem em que os cards aparecem — muda conforme o fluxo executado. */
+  runOrder: readonly string[]
   layerStates: Record<string, StageState>
   layerNotes: Record<string, string>
   layerMs: Record<string, number>
+  layerPhase: Record<string, RunPhase>
+  /** Tempo que o usuário espera até a resposta HTTP. */
+  responseMs: number
+  /** Ponta a ponta, incluindo o que roda fora da resposta. */
   totalMs: number
   cacheWarm: boolean
   insightCached: boolean
@@ -55,6 +68,7 @@ interface DeliveryState {
   selectedId: string | null
   logs: DeliveryLog[]
   setCloud: (cloud: CloudProvider) => void
+  setWriteStrategy: (strategy: WriteStrategy) => void
   runRequest: (kind: RequestKind) => void
   runPipeline: () => void
   applyTdd: () => void
@@ -87,13 +101,14 @@ function layerMs(id: string): number {
   return RUNTIME_LAYERS.find((layer) => layer.id === id)?.baseMs ?? 0
 }
 
-interface CacheFlags {
+interface RunOptions {
   cacheWarm: boolean
   insightCached: boolean
+  writeStrategy: WriteStrategy
 }
 
-/** Monta a sequência do request: leitura usa cache-aside, escrita passa pelo domínio. */
-function buildRun(kind: RequestKind, flags: CacheFlags, resource: string): RunStep[] {
+/** Monta a sequência do request: leitura usa cache-aside, escrita depende da estratégia. */
+function buildRun(kind: RequestKind, flags: RunOptions, resource: string): RunStep[] {
   const entryNote =
     kind === RequestKinds.Read ? 'GET' : kind === RequestKinds.Write ? 'POST' : 'INSIGHT'
   const entryMessage =
@@ -218,6 +233,41 @@ function buildRun(kind: RequestKind, flags: CacheFlags, resource: string): RunSt
         },
       })
     }
+  } else if (flags.writeStrategy === WriteStrategies.QueueFirst) {
+    steps.push({
+      layerId: 'messaging',
+      ms: layerMs('messaging'),
+      note: 'aceito · 202',
+      log: {
+        level: 'success',
+        source: 'messaging',
+        message:
+          'Comando aceito na fila com idempotency key — API devolve 202 e protocolo. O pico morre aqui, não no banco',
+      },
+    })
+    steps.push({
+      layerId: 'domain',
+      ms: layerMs('domain'),
+      note: 'no worker',
+      async: true,
+      log: {
+        level: 'warn',
+        source: 'domain',
+        message:
+          'A invariante roda no worker: rejeição aparece no endpoint de status, não na resposta do usuário',
+      },
+    })
+    steps.push({
+      layerId: 'sqlserver',
+      ms: layerMs('sqlserver'),
+      note: 'commit',
+      async: true,
+      log: {
+        level: 'success',
+        source: 'sqlserver',
+        message: 'Worker persiste no ritmo do banco — escrita nivelada, sem estourar conexão',
+      },
+    })
   } else {
     steps.push({
       layerId: 'domain',
@@ -243,17 +293,22 @@ function buildRun(kind: RequestKind, flags: CacheFlags, resource: string): RunSt
       layerId: 'messaging',
       ms: layerMs('messaging'),
       note: 'outbox',
+      async: true,
       log: {
         level: 'info',
         source: 'messaging',
         message:
-          'Evento publicado pela outbox depois do commit — RabbitMQ para fila, Kafka quando preciso de replay',
+          'Dispatcher publica o evento gravado na transação — sem evento fantasma se o commit falhar',
       },
     })
+  }
+
+  if (kind === RequestKinds.Write) {
     steps.push({
       layerId: 'mongo',
       ms: layerMs('mongo'),
       note: 'projeção',
+      async: true,
       log: {
         level: 'info',
         source: 'mongo',
@@ -265,6 +320,7 @@ function buildRun(kind: RequestKind, flags: CacheFlags, resource: string): RunSt
       layerId: 'redis',
       ms: layerMs('redis'),
       note: 'invalidado',
+      async: true,
       log: {
         level: 'warn',
         source: 'redis',
@@ -276,6 +332,26 @@ function buildRun(kind: RequestKind, flags: CacheFlags, resource: string): RunSt
   return steps
 }
 
+function responseMessage(
+  kind: RequestKind,
+  strategy: WriteStrategy,
+  responseMs: number,
+  hasAsync: boolean,
+): string {
+  if (kind === RequestKinds.Read) {
+    return `200 OK em ~${responseMs} ms — repita o GET para ver o cache quente`
+  }
+  if (kind === RequestKinds.Insight) {
+    return `200 OK em ~${responseMs} ms — repita o insight: o cache responde sem custo de token`
+  }
+  if (strategy === WriteStrategies.QueueFirst) {
+    return `202 Accepted em ~${responseMs} ms — cliente recebe protocolo; o worker segue sozinho`
+  }
+  return hasAsync
+    ? `201 Created em ~${responseMs} ms — o usuário só espera até o commit`
+    : `201 Created em ~${responseMs} ms`
+}
+
 function appendLogs(existing: DeliveryLog[], incoming: Omit<DeliveryLog, 'id'>[]): DeliveryLog[] {
   const next = [
     ...incoming.map((log) => ({ ...log, id: createId('dlog') })).reverse(),
@@ -284,13 +360,19 @@ function appendLogs(existing: DeliveryLog[], incoming: Omit<DeliveryLog, 'id'>[]
   return next.length > 40 ? next.slice(0, 40) : next
 }
 
+const CANONICAL_ORDER: readonly string[] = RUNTIME_LAYERS.map((layer) => layer.id)
+
 export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   cloud: CloudProviders.Azure,
   requestKind: null,
+  writeStrategy: WriteStrategies.Outbox,
   running: false,
+  runOrder: CANONICAL_ORDER,
   layerStates: idleLayers(),
   layerNotes: {},
   layerMs: {},
+  layerPhase: {},
+  responseMs: 0,
   totalMs: 0,
   cacheWarm: false,
   insightCached: false,
@@ -320,19 +402,46 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
     }))
   },
 
+  setWriteStrategy: (strategy) => {
+    if (get().running || get().writeStrategy === strategy) return
+    set({ writeStrategy: strategy })
+    get().select('messaging')
+    set((state) => ({
+      logs: appendLogs(state.logs, [
+        {
+          level: 'info',
+          source: 'escrita',
+          message:
+            strategy === WriteStrategies.QueueFirst
+              ? 'Estratégia: fila primeiro. Devolvo 202 e absorvo o pico — o cliente recebe protocolo, não o ID'
+              : 'Estratégia: outbox. Commit e evento na mesma transação — devolvo 201 com o ID',
+        },
+      ]),
+    }))
+  },
+
   runRequest: (kind) => {
     if (get().running) return
     clearTimers()
 
-    const { cacheWarm, insightCached } = get()
-    const steps = buildRun(kind, { cacheWarm, insightCached }, PROFILE.resource)
+    const { cacheWarm, insightCached, writeStrategy } = get()
+    const steps = buildRun(kind, { cacheWarm, insightCached, writeStrategy }, PROFILE.resource)
+    const order = steps.map((step) => step.layerId)
+    const phase: Record<string, RunPhase> = {}
+    for (const step of steps) phase[step.layerId] = step.async ? 'async' : 'sync'
+
+    const lastSyncIndex = steps.reduce((acc, step, index) => (step.async ? acc : index), 0)
+    const hasAsync = steps.some((step) => step.async)
 
     set({
       running: true,
       requestKind: kind,
+      runOrder: [...order, ...CANONICAL_ORDER.filter((id) => !order.includes(id))],
       layerStates: idleLayers(),
       layerNotes: {},
       layerMs: {},
+      layerPhase: phase,
+      responseMs: 0,
       totalMs: 0,
     })
 
@@ -348,13 +457,27 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       timers.push(
         setTimeout(
           () => {
-            set((state) => ({
-              layerStates: { ...state.layerStates, [step.layerId]: StageStates.Done },
-              layerNotes: { ...state.layerNotes, [step.layerId]: step.note },
-              layerMs: { ...state.layerMs, [step.layerId]: step.ms },
-              totalMs: state.totalMs + step.ms,
-              logs: appendLogs(state.logs, [step.log]),
-            }))
+            set((state) => {
+              const responseMs = step.async ? state.responseMs : state.responseMs + step.ms
+              const logs: Omit<DeliveryLog, 'id'>[] = [step.log]
+
+              if (index === lastSyncIndex) {
+                logs.push({
+                  level: 'success',
+                  source: 'response',
+                  message: responseMessage(kind, writeStrategy, responseMs, hasAsync),
+                })
+              }
+
+              return {
+                layerStates: { ...state.layerStates, [step.layerId]: StageStates.Done },
+                layerNotes: { ...state.layerNotes, [step.layerId]: step.note },
+                layerMs: { ...state.layerMs, [step.layerId]: step.ms },
+                responseMs,
+                totalMs: state.totalMs + step.ms,
+                logs: appendLogs(state.logs, logs),
+              }
+            })
           },
           index * STEP_INTERVAL_MS + STEP_INTERVAL_MS * 0.75,
         ),
@@ -364,13 +487,8 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
     timers.push(
       setTimeout(
         () => {
-          const total = get().totalMs
-          const closing =
-            kind === RequestKinds.Read
-              ? `200 OK em ~${total} ms — repita o GET para ver o cache quente`
-              : kind === RequestKinds.Write
-                ? `201 Created em ~${total} ms — escrita, evento, projeção e cache resolvidos`
-                : `200 OK em ~${total} ms — repita o insight: o cache responde sem custo de token`
+          const { responseMs, totalMs } = get()
+          const extra = totalMs - responseMs
 
           set((state) => ({
             running: false,
@@ -381,9 +499,15 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
                   ? false
                   : state.cacheWarm,
             insightCached: kind === RequestKinds.Insight ? true : state.insightCached,
-            logs: appendLogs(state.logs, [
-              { level: 'success', source: 'response', message: closing },
-            ]),
+            logs: hasAsync
+              ? appendLogs(state.logs, [
+                  {
+                    level: 'info',
+                    source: 'propagação',
+                    message: `Propagação concluída (+${extra} ms) fora do tempo da resposta — evento, projeção e cache`,
+                  },
+                ])
+              : state.logs,
           }))
         },
         steps.length * STEP_INTERVAL_MS + 120,
@@ -488,9 +612,12 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
     set({
       requestKind: null,
       running: false,
+      runOrder: CANONICAL_ORDER,
       layerStates: idleLayers(),
       layerNotes: {},
       layerMs: {},
+      layerPhase: {},
+      responseMs: 0,
       totalMs: 0,
       cacheWarm: false,
       insightCached: false,
