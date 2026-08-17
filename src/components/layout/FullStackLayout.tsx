@@ -8,18 +8,22 @@ import { PipelineLane } from '@/components/fullstack/PipelineLane'
 import { DetailPanel } from '@/components/fullstack/DetailPanel'
 
 const STACK_CHIPS: readonly string[] = [
-  'React + TypeScript',
-  'ASP.NET Core',
-  'DDD',
-  'Clean Code',
-  'TDD',
-  'Teste integrado',
-  'SonarQube',
-  'SQL Server',
+  '.NET 8/9 · ASP.NET Core',
+  'React 19 · Angular 17',
+  'Clean Architecture',
+  'DDD · SOLID',
+  'TDD · BDD',
+  'RabbitMQ · Kafka',
+  'SQL Server · Oracle · MySQL',
   'MongoDB',
   'Redis',
+  'Cypress',
+  'K6',
+  'SonarQube',
+  'Docker · Kubernetes',
   'GitHub Actions',
-  'Azure / AWS',
+  'Dynatrace · Grafana',
+  'OpenAI · NLP',
 ]
 
 export function FullStackLayout() {
@@ -36,8 +40,8 @@ export function FullStackLayout() {
             <h1 className="truncate font-display text-base font-bold tracking-tight text-slate-50">
               HyperFlow · {PROFILE.role}
             </h1>
-            <p className="hidden font-mono text-[10px] uppercase tracking-[0.18em] text-slate-500 sm:block">
-              Request lifecycle &amp; delivery pipeline
+            <p className="hidden truncate font-mono text-[10px] uppercase tracking-[0.18em] text-slate-500 sm:block">
+              {PROFILE.headline} · {PROFILE.years}
             </p>
           </div>
         </div>

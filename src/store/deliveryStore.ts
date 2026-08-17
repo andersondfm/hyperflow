@@ -44,6 +44,7 @@ interface DeliveryState {
   layerMs: Record<string, number>
   totalMs: number
   cacheWarm: boolean
+  insightCached: boolean
   pipelineRunning: boolean
   pipelineStates: Record<string, StageState>
   coverage: number
@@ -86,21 +87,28 @@ function layerMs(id: string): number {
   return RUNTIME_LAYERS.find((layer) => layer.id === id)?.baseMs ?? 0
 }
 
+interface CacheFlags {
+  cacheWarm: boolean
+  insightCached: boolean
+}
+
 /** Monta a sequência do request: leitura usa cache-aside, escrita passa pelo domínio. */
-function buildRun(kind: RequestKind, cacheWarm: boolean, resource: string): RunStep[] {
+function buildRun(kind: RequestKind, flags: CacheFlags, resource: string): RunStep[] {
+  const entryNote =
+    kind === RequestKinds.Read ? 'GET' : kind === RequestKinds.Write ? 'POST' : 'INSIGHT'
+  const entryMessage =
+    kind === RequestKinds.Read
+      ? `Componente pede GET /${resource} — estado de carregamento na tela`
+      : kind === RequestKinds.Write
+        ? `Formulário envia POST /${resource} — validação de contrato no cliente`
+        : `Tela pede um insight sobre /${resource} — pergunta em linguagem natural`
+
   const steps: RunStep[] = [
     {
       layerId: 'react',
       ms: layerMs('react'),
-      note: kind === RequestKinds.Read ? 'GET' : 'POST',
-      log: {
-        level: 'info',
-        source: 'react',
-        message:
-          kind === RequestKinds.Read
-            ? `Componente pede GET /${resource} — estado de carregamento na tela`
-            : `Formulário envia POST /${resource} — validação de contrato no cliente`,
-      },
+      note: entryNote,
+      log: { level: 'info', source: 'react', message: entryMessage },
     },
     {
       layerId: 'api',
@@ -115,20 +123,69 @@ function buildRun(kind: RequestKind, cacheWarm: boolean, resource: string): RunS
     {
       layerId: 'application',
       ms: layerMs('application'),
-      note: kind === RequestKinds.Read ? 'Query' : 'Command',
+      note: kind === RequestKinds.Write ? 'Command' : 'Query',
       log: {
         level: 'info',
         source: 'application',
         message:
-          kind === RequestKinds.Read
-            ? 'Application: Query handler — leitura não abre transação de escrita'
-            : 'Application: Command handler abre unidade de trabalho',
+          kind === RequestKinds.Write
+            ? 'Application: Command handler abre unidade de trabalho'
+            : 'Application: Query handler — leitura não abre transação de escrita',
       },
     },
   ]
 
+  if (kind === RequestKinds.Insight) {
+    if (flags.insightCached) {
+      steps.push({
+        layerId: 'redis',
+        ms: layerMs('redis'),
+        note: 'HIT',
+        log: {
+          level: 'success',
+          source: 'redis',
+          message: 'Redis HIT — mesma pergunta não paga token duas vezes. IA cara é IA sem cache',
+        },
+      })
+      return steps
+    }
+
+    steps.push({
+      layerId: 'redis',
+      ms: layerMs('redis'),
+      note: 'MISS',
+      log: {
+        level: 'warn',
+        source: 'redis',
+        message: 'Redis MISS — pergunta nova, vai custar token',
+      },
+    })
+    steps.push({
+      layerId: 'mongo',
+      ms: layerMs('mongo'),
+      note: 'contexto',
+      log: {
+        level: 'info',
+        source: 'mongo',
+        message: 'Mongo entrega o contexto do domínio — o prompt recebe dado, não achismo',
+      },
+    })
+    steps.push({
+      layerId: 'ai',
+      ms: layerMs('ai'),
+      note: 'GPT',
+      log: {
+        level: 'success',
+        source: 'openai',
+        message:
+          'OpenAI responde em ~890 ms: saída validada contra schema, com timeout e fallback. Resultado cacheado',
+      },
+    })
+    return steps
+  }
+
   if (kind === RequestKinds.Read) {
-    if (cacheWarm) {
+    if (flags.cacheWarm) {
       steps.push({
         layerId: 'redis',
         ms: layerMs('redis'),
@@ -183,13 +240,25 @@ function buildRun(kind: RequestKind, cacheWarm: boolean, resource: string): RunS
       },
     })
     steps.push({
+      layerId: 'messaging',
+      ms: layerMs('messaging'),
+      note: 'outbox',
+      log: {
+        level: 'info',
+        source: 'messaging',
+        message:
+          'Evento publicado pela outbox depois do commit — RabbitMQ para fila, Kafka quando preciso de replay',
+      },
+    })
+    steps.push({
       layerId: 'mongo',
       ms: layerMs('mongo'),
       note: 'projeção',
       log: {
         level: 'info',
         source: 'mongo',
-        message: 'Domain Event projeta o documento de leitura (consistência eventual assumida)',
+        message:
+          'Consumidor idempotente projeta o documento de leitura (consistência eventual assumida)',
       },
     })
     steps.push({
@@ -224,6 +293,7 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   layerMs: {},
   totalMs: 0,
   cacheWarm: false,
+  insightCached: false,
   pipelineRunning: false,
   pipelineStates: idlePipeline(),
   coverage: QUALITY_GATE.coverageBefore,
@@ -254,7 +324,8 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
     if (get().running) return
     clearTimers()
 
-    const steps = buildRun(kind, get().cacheWarm, PROFILE.resource)
+    const { cacheWarm, insightCached } = get()
+    const steps = buildRun(kind, { cacheWarm, insightCached }, PROFILE.resource)
 
     set({
       running: true,
@@ -294,18 +365,24 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       setTimeout(
         () => {
           const total = get().totalMs
+          const closing =
+            kind === RequestKinds.Read
+              ? `200 OK em ~${total} ms — repita o GET para ver o cache quente`
+              : kind === RequestKinds.Write
+                ? `201 Created em ~${total} ms — escrita, evento, projeção e cache resolvidos`
+                : `200 OK em ~${total} ms — repita o insight: o cache responde sem custo de token`
+
           set((state) => ({
             running: false,
-            cacheWarm: kind === RequestKinds.Read,
+            cacheWarm:
+              kind === RequestKinds.Read
+                ? true
+                : kind === RequestKinds.Write
+                  ? false
+                  : state.cacheWarm,
+            insightCached: kind === RequestKinds.Insight ? true : state.insightCached,
             logs: appendLogs(state.logs, [
-              {
-                level: 'success',
-                source: 'response',
-                message:
-                  kind === RequestKinds.Read
-                    ? `200 OK em ~${total} ms — repita o GET para ver o cache quente`
-                    : `201 Created em ~${total} ms — escrita, projeção e cache resolvidos`,
-              },
+              { level: 'success', source: 'response', message: closing },
             ]),
           }))
         },
@@ -416,6 +493,7 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       layerMs: {},
       totalMs: 0,
       cacheWarm: false,
+      insightCached: false,
       pipelineRunning: false,
       pipelineStates: idlePipeline(),
       coverage: QUALITY_GATE.coverageBefore,
@@ -458,7 +536,19 @@ function pipelineLog(
         level: 'success',
         source: 'integration',
         message:
-          'Teste integrado verde — SQL Server, Redis e Mongo reais em container (Testcontainers)',
+          'Teste integrado verde — SQL Server, Redis, Mongo e RabbitMQ reais em container (Testcontainers)',
+      }
+    case 'e2e':
+      return {
+        level: 'success',
+        source: 'cypress',
+        message: 'Cypress verde no fluxo crítico — testado no navegador, não na intenção',
+      }
+    case 'load':
+      return {
+        level: 'success',
+        source: 'k6',
+        message: 'K6: p95 dentro do acordado e sem regressão contra o baseline da versão anterior',
       }
     case 'sonar':
       return {
@@ -470,13 +560,15 @@ function pipelineLog(
       return {
         level: 'success',
         source: 'deploy',
-        message: 'Deploy blue/green com migration compatível — health check antes do tráfego',
+        message:
+        'Rolling update no Kubernetes com migration compatível — health check antes do tráfego',
       }
     case 'observability':
       return {
         level: 'success',
         source: 'observability',
-        message: 'Trace ponta a ponta com correlation id — alerta em cima de erro e latência',
+        message:
+        'Trace ponta a ponta com correlation id — Dynatrace e Grafana com alerta em cima de erro e latência',
       }
     default:
       return { level: 'info', source: stepId, message: 'Etapa concluída' }

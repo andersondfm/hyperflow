@@ -1,5 +1,6 @@
 import {
   Atom,
+  Brain,
   Database,
   DatabaseZap,
   Gem,
@@ -7,6 +8,7 @@ import {
   Leaf,
   Play,
   Server,
+  Share2,
   Timer,
 } from 'lucide-react'
 import type { LayerIconKey } from '@/data/fullstackProfile'
@@ -20,9 +22,11 @@ const ICONS: Record<LayerIconKey, typeof Atom> = {
   api: Server,
   application: Layers,
   domain: Gem,
+  messaging: Share2,
   redis: DatabaseZap,
   sql: Database,
   mongo: Leaf,
+  ai: Brain,
 }
 
 export function RuntimeLane() {
@@ -32,6 +36,7 @@ export function RuntimeLane() {
   const totalMs = useDeliveryStore((s) => s.totalMs)
   const running = useDeliveryStore((s) => s.running)
   const cacheWarm = useDeliveryStore((s) => s.cacheWarm)
+  const insightCached = useDeliveryStore((s) => s.insightCached)
   const requestKind = useDeliveryStore((s) => s.requestKind)
   const selectedId = useDeliveryStore((s) => s.selectedId)
   const runRequest = useDeliveryStore((s) => s.runRequest)
@@ -71,13 +76,13 @@ export function RuntimeLane() {
           <div
             className={cn(
               'rounded-lg border px-2.5 py-1.5 font-mono text-[10px] font-semibold uppercase tracking-wider',
-              cacheWarm
+              cacheWarm || insightCached
                 ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
                 : 'border-slate-800 bg-slate-900/60 text-slate-500',
             )}
-            title="Cache-aside: o segundo GET responde do Redis"
+            title="Cache-aside: o segundo request responde do Redis"
           >
-            {cacheWarm ? 'cache quente' : 'cache frio'}
+            {cacheWarm || insightCached ? 'cache quente' : 'cache frio'}
           </div>
 
           <button
@@ -108,6 +113,22 @@ export function RuntimeLane() {
           >
             <Play className="h-3.5 w-3.5" />
             POST /{PROFILE.resource}
+          </button>
+
+          <button
+            type="button"
+            disabled={running}
+            onClick={() => runRequest(RequestKinds.Insight)}
+            title="Fluxo de IA do WorkBia: contexto do domínio + OpenAI, com cache e fallback"
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition',
+              running
+                ? 'cursor-not-allowed border-slate-800 text-slate-600'
+                : 'border-violet-500/40 bg-violet-500/15 text-violet-200 hover:bg-violet-500/25',
+            )}
+          >
+            <Brain className="h-3.5 w-3.5" />
+            Insight com IA
           </button>
         </div>
       </div>

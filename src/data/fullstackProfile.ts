@@ -1,21 +1,32 @@
 /**
  * Conteúdo da aba Full Stack .NET + React.
  *
- * Personalize `PROFILE` com os dados do seu currículo antes da apresentação:
- * o restante do arquivo é o roteiro técnico que aparece na tela.
+ * `PROFILE` é o resumo que aparece na tela; o resto do arquivo é o roteiro técnico
+ * de cada camada e de cada etapa da entrega.
  */
 
 export const PROFILE = {
   role: 'Full Stack .NET + React',
-  /** Recurso usado no exemplo de request — mantém o mesmo domínio do canvas de arquitetura. */
+  headline: 'Engenheiro de Software · Arquiteto hands-on',
+  years: '20+ anos',
+  /** Recurso usado no exemplo de request — troque para o domínio da vaga (faturas, notas...). */
   resource: 'pedidos',
-  /** Aparece no cabeçalho da aba. Ajuste para o seu tempo de casa / domínio. */
-  tagline: 'Do componente React ao índice do SQL Server — com teste, gate e deploy no caminho',
+  tagline:
+    '20+ anos de engenharia: do componente React ao índice do SQL Server — com mensageria, teste, quality gate e deploy no caminho.',
+  highlights: [
+    '.NET 8/9 e ASP.NET Core com Clean Architecture, SOLID, DDD e TDD',
+    'Mensageria distribuída: RabbitMQ para fila, Kafka quando preciso de replay',
+    'SQL Server, Oracle, MySQL, MongoDB e Redis em cenários críticos',
+    'React 19 e Angular 17 no front, TypeScript strict',
+    'Docker, Kubernetes, GitHub Actions, SonarQube, Dynatrace e Grafana',
+    'WorkBia: ERP SaaS industrial que projetei e desenvolvi com OpenAI, prompt engineering e NLP',
+  ],
 } as const
 
 export const CloudProviders = {
   Azure: 'azure',
   Aws: 'aws',
+  DigitalOcean: 'do',
 } as const
 
 export type CloudProvider = (typeof CloudProviders)[keyof typeof CloudProviders]
@@ -23,11 +34,19 @@ export type CloudProvider = (typeof CloudProviders)[keyof typeof CloudProviders]
 export const CLOUD_LABEL: Record<CloudProvider, string> = {
   [CloudProviders.Azure]: 'Azure',
   [CloudProviders.Aws]: 'AWS',
+  [CloudProviders.DigitalOcean]: 'DigitalOcean',
+}
+
+export const CLOUD_SHORT: Record<CloudProvider, string> = {
+  [CloudProviders.Azure]: 'Azure',
+  [CloudProviders.Aws]: 'AWS',
+  [CloudProviders.DigitalOcean]: 'DO',
 }
 
 export const RequestKinds = {
   Read: 'read',
   Write: 'write',
+  Insight: 'insight',
 } as const
 
 export type RequestKind = (typeof RequestKinds)[keyof typeof RequestKinds]
@@ -37,9 +56,11 @@ export type LayerIconKey =
   | 'api'
   | 'application'
   | 'domain'
+  | 'messaging'
   | 'redis'
   | 'sql'
   | 'mongo'
+  | 'ai'
 
 export interface RuntimeLayer {
   id: string
@@ -63,48 +84,50 @@ export const RUNTIME_LAYERS: readonly RuntimeLayer[] = [
     id: 'react',
     title: 'React SPA',
     layer: 'Apresentação',
-    tech: 'React 19 + TypeScript',
+    tech: 'React 19 + TypeScript (também Angular 17)',
     icon: 'react',
     baseMs: 14,
-    kinds: [RequestKinds.Read, RequestKinds.Write],
+    kinds: [RequestKinds.Read, RequestKinds.Write, RequestKinds.Insight],
     bullets: [
-      'Componente burro, estado de servidor separado do estado de UI',
+      'Componente burro: estado de servidor separado do estado de UI',
       'Formulário valida no cliente, mas a regra de verdade mora no domínio',
-      'Estado de carregamento e erro são requisito, não detalhe',
+      'Carregamento, erro e estado vazio são requisito, não detalhe',
     ],
     cloud: {
       [CloudProviders.Azure]: 'Static Web Apps + Front Door',
       [CloudProviders.Aws]: 'S3 + CloudFront',
+      [CloudProviders.DigitalOcean]: 'App Platform (static) + Spaces CDN',
     },
-    tags: ['Clean Code', 'TypeScript strict'],
+    tags: ['React', 'TypeScript', 'Clean Code'],
   },
   {
     id: 'api',
     title: 'API .NET',
     layer: 'Borda / Contrato',
-    tech: 'ASP.NET Core · Minimal API',
+    tech: 'ASP.NET Core · .NET 8/9',
     icon: 'api',
     baseMs: 5,
-    kinds: [RequestKinds.Read, RequestKinds.Write],
+    kinds: [RequestKinds.Read, RequestKinds.Write, RequestKinds.Insight],
     bullets: [
       'DTO de entrada e saída — entidade de domínio não vaza pela API',
       'Validação no contrato, erro em ProblemDetails, versionamento na rota',
-      'Autenticação JWT e rate limit antes de qualquer regra rodar',
+      'JWT e rate limit antes de qualquer regra rodar',
     ],
     cloud: {
       [CloudProviders.Azure]: 'App Service / Container Apps + APIM',
       [CloudProviders.Aws]: 'ECS Fargate + ALB / API Gateway',
+      [CloudProviders.DigitalOcean]: 'App Platform / Droplet com Docker',
     },
-    tags: ['API', 'Clean Code'],
+    tags: ['API', 'ASP.NET Core'],
   },
   {
     id: 'application',
     title: 'Application',
     layer: 'Caso de uso',
-    tech: 'Handler / CQRS + Unit of Work',
+    tech: 'Handler CQRS + Unit of Work',
     icon: 'application',
     baseMs: 4,
-    kinds: [RequestKinds.Read, RequestKinds.Write],
+    kinds: [RequestKinds.Read, RequestKinds.Write, RequestKinds.Insight],
     bullets: [
       'Orquestra o caso de uso — não decide regra de negócio',
       'Transação, idempotência e publicação de evento vivem aqui',
@@ -113,8 +136,9 @@ export const RUNTIME_LAYERS: readonly RuntimeLayer[] = [
     cloud: {
       [CloudProviders.Azure]: 'mesma imagem de container',
       [CloudProviders.Aws]: 'mesma imagem de container',
+      [CloudProviders.DigitalOcean]: 'mesma imagem de container',
     },
-    tags: ['DDD', 'CQRS'],
+    tags: ['Clean Architecture', 'CQRS', 'SOLID'],
   },
   {
     id: 'domain',
@@ -128,32 +152,14 @@ export const RUNTIME_LAYERS: readonly RuntimeLayer[] = [
       'A invariante é garantida aqui — objeto inválido não existe',
       'Sem EF Core, sem HttpClient: o domínio não conhece infraestrutura',
       'Nome de classe é nome do negócio (linguagem ubíqua)',
-      'Domain Event sai daqui e alimenta a projeção de leitura',
+      'É a camada que eu escrevo com teste primeiro — TDD paga aqui',
     ],
     cloud: {
       [CloudProviders.Azure]: 'independente de nuvem',
       [CloudProviders.Aws]: 'independente de nuvem',
+      [CloudProviders.DigitalOcean]: 'independente de nuvem',
     },
-    tags: ['DDD', 'TDD'],
-  },
-  {
-    id: 'redis',
-    title: 'Redis',
-    layer: 'Infra · Cache-aside',
-    tech: 'StackExchange.Redis',
-    icon: 'redis',
-    baseMs: 2,
-    kinds: [RequestKinds.Read],
-    bullets: [
-      'Cache-aside: procura no cache, cai na fonte, popula de volta',
-      'TTL curto + invalidação por evento — cache velho é bug silencioso',
-      'Chave versionada para não servir contrato antigo depois do deploy',
-    ],
-    cloud: {
-      [CloudProviders.Azure]: 'Azure Cache for Redis',
-      [CloudProviders.Aws]: 'ElastiCache (Redis)',
-    },
-    tags: ['Redis', 'Performance'],
+    tags: ['DDD', 'TDD', 'SOLID'],
   },
   {
     id: 'sqlserver',
@@ -167,12 +173,35 @@ export const RUNTIME_LAYERS: readonly RuntimeLayer[] = [
       'Fonte da verdade da escrita: transação, constraint e índice',
       'Migration versionada no repositório e aplicada no deploy',
       'Consulta olhada no plano de execução — N+1 não passa em review',
+      'Mesmo raciocínio quando o legado é Oracle ou MySQL',
     ],
     cloud: {
       [CloudProviders.Azure]: 'Azure SQL Database',
       [CloudProviders.Aws]: 'RDS for SQL Server',
+      [CloudProviders.DigitalOcean]: 'Droplet com SQL Server em container (não é gerenciado)',
     },
     tags: ['SQL Server', 'EF Core'],
+  },
+  {
+    id: 'messaging',
+    title: 'RabbitMQ / Kafka',
+    layer: 'Mensageria',
+    tech: 'Outbox + consumidor idempotente',
+    icon: 'messaging',
+    baseMs: 6,
+    kinds: [RequestKinds.Write],
+    bullets: [
+      'Evento publicado depois do commit, via outbox — não perco mensagem',
+      'Consumidor idempotente: reprocessar não duplica efeito',
+      'RabbitMQ para trabalho por fila; Kafka quando preciso de replay e ordem por partição',
+      'DLQ com política de retry — mensagem ruim não trava o consumidor',
+    ],
+    cloud: {
+      [CloudProviders.Azure]: 'Service Bus / Event Hubs (Kafka)',
+      [CloudProviders.Aws]: 'SQS / Amazon MSK (Kafka)',
+      [CloudProviders.DigitalOcean]: 'RabbitMQ em DOKS / Droplet',
+    },
+    tags: ['RabbitMQ', 'Kafka', 'Resiliência'],
   },
   {
     id: 'mongo',
@@ -181,7 +210,7 @@ export const RUNTIME_LAYERS: readonly RuntimeLayer[] = [
     tech: 'Documento pronto para a tela',
     icon: 'mongo',
     baseMs: 7,
-    kinds: [RequestKinds.Read, RequestKinds.Write],
+    kinds: [RequestKinds.Read, RequestKinds.Write, RequestKinds.Insight],
     bullets: [
       'Leitura sai de um documento já montado — sem join caro',
       'Projeção atualizada pelo evento de domínio da escrita',
@@ -190,8 +219,52 @@ export const RUNTIME_LAYERS: readonly RuntimeLayer[] = [
     cloud: {
       [CloudProviders.Azure]: 'Cosmos DB for MongoDB',
       [CloudProviders.Aws]: 'DocumentDB',
+      [CloudProviders.DigitalOcean]: 'Managed MongoDB',
     },
     tags: ['MongoDB', 'CQRS'],
+  },
+  {
+    id: 'redis',
+    title: 'Redis',
+    layer: 'Infra · Cache-aside',
+    tech: 'StackExchange.Redis',
+    icon: 'redis',
+    baseMs: 2,
+    kinds: [RequestKinds.Read, RequestKinds.Write, RequestKinds.Insight],
+    bullets: [
+      'Cache-aside: procura no cache, cai na fonte, popula de volta',
+      'TTL curto + invalidação por evento — cache velho é bug silencioso',
+      'Chave versionada para não servir contrato antigo depois do deploy',
+      'No fluxo de IA, guarda a resposta: mesma pergunta não paga token duas vezes',
+    ],
+    cloud: {
+      [CloudProviders.Azure]: 'Azure Cache for Redis',
+      [CloudProviders.Aws]: 'ElastiCache (Redis)',
+      [CloudProviders.DigitalOcean]: 'Managed Redis',
+    },
+    tags: ['Redis', 'Performance', 'FinOps'],
+  },
+  {
+    id: 'ai',
+    title: 'IA · OpenAI',
+    layer: 'Insight (WorkBia)',
+    tech: 'GPT + prompt engineering + NLP',
+    icon: 'ai',
+    baseMs: 890,
+    kinds: [RequestKinds.Insight],
+    bullets: [
+      'Prompt é código: versionado, revisado em PR e testado com caso de regressão',
+      'Saída validada contra schema antes de virar dado — não confio no texto cru',
+      'Timeout, retry e fallback: IA fora do ar não derruba o fluxo do usuário',
+      'Custo por token é requisito — cache e limite de contexto entram no design',
+      'É o coração do WorkBia: dado bruto do ERP virando decisão de negócio',
+    ],
+    cloud: {
+      [CloudProviders.Azure]: 'Azure OpenAI Service',
+      [CloudProviders.Aws]: 'Amazon Bedrock / OpenAI API',
+      [CloudProviders.DigitalOcean]: 'OpenAI API direto (sem serviço gerenciado)',
+    },
+    tags: ['OpenAI', 'NLP', 'Prompt Engineering'],
   },
 ] as const
 
@@ -200,6 +273,8 @@ export type PipelineIconKey =
   | 'build'
   | 'unit'
   | 'integration'
+  | 'e2e'
+  | 'load'
   | 'sonar'
   | 'deploy'
   | 'observability'
@@ -222,7 +297,7 @@ export const PIPELINE_STEPS: readonly PipelineStep[] = [
     title: 'GitHub',
     subtitle: 'Pull request',
     icon: 'github',
-    durationMs: 500,
+    durationMs: 420,
     bullets: [
       'Trunk-based, PR pequeno e revisável — não PR de 40 arquivos',
       'Branch protegida: sem review e sem check verde, não entra',
@@ -231,6 +306,7 @@ export const PIPELINE_STEPS: readonly PipelineStep[] = [
     cloud: {
       [CloudProviders.Azure]: 'GitHub Actions / Azure DevOps',
       [CloudProviders.Aws]: 'GitHub Actions / CodePipeline',
+      [CloudProviders.DigitalOcean]: 'GitHub Actions',
     },
     tags: ['GitHub', 'Code Review'],
   },
@@ -239,58 +315,97 @@ export const PIPELINE_STEPS: readonly PipelineStep[] = [
     title: 'Build',
     subtitle: 'dotnet build + vite build',
     icon: 'build',
-    durationMs: 700,
+    durationMs: 600,
     bullets: [
       'Warning como erro: o compilador é o primeiro revisor',
-      'Front e back no mesmo pipeline — quebra em um trava o outro',
+      'Front e back no mesmo workflow YML — quebra em um trava o outro',
       'Imagem Docker versionada pelo SHA do commit',
     ],
     cloud: {
       [CloudProviders.Azure]: 'Azure Container Registry',
       [CloudProviders.Aws]: 'Amazon ECR',
+      [CloudProviders.DigitalOcean]: 'DO Container Registry',
     },
-    tags: ['CI', 'Docker'],
+    tags: ['GitHub Actions', 'Docker'],
   },
   {
     id: 'unit',
     title: 'Testes de unidade',
-    subtitle: 'xUnit + Vitest (TDD)',
+    subtitle: 'xUnit + Vitest (TDD/BDD)',
     icon: 'unit',
-    durationMs: 800,
+    durationMs: 620,
     bullets: [
       'Teste primeiro na regra de negócio — o domínio nasce testado',
+      'Cenário escrito em linguagem de negócio (BDD) quando a regra é discutida com o time',
       'Rápido e sem infraestrutura: roda em segundos, roda sempre',
-      'Cobertura é sintoma, não meta; o alvo é a regra crítica coberta',
     ],
     cloud: {
       [CloudProviders.Azure]: 'runner do GitHub Actions',
       [CloudProviders.Aws]: 'runner do GitHub Actions',
+      [CloudProviders.DigitalOcean]: 'runner do GitHub Actions',
     },
-    tags: ['TDD', 'xUnit'],
+    tags: ['TDD', 'BDD', 'xUnit'],
   },
   {
     id: 'integration',
     title: 'Teste integrado',
     subtitle: 'WebApplicationFactory + Testcontainers',
     icon: 'integration',
-    durationMs: 1_100,
+    durationMs: 880,
     bullets: [
-      'Sobe SQL Server, Redis e Mongo em container e testa de verdade',
+      'Sobe SQL Server, Redis, Mongo e RabbitMQ em container e testa de verdade',
       'Pega o que o unitário não pega: mapeamento, migration, serialização',
       'Sem mock de banco mentindo que está tudo bem',
     ],
     cloud: {
       [CloudProviders.Azure]: 'container job no pipeline',
       [CloudProviders.Aws]: 'container job no pipeline',
+      [CloudProviders.DigitalOcean]: 'container job no pipeline',
     },
     tags: ['Teste integrado', 'Testcontainers'],
+  },
+  {
+    id: 'e2e',
+    title: 'E2E',
+    subtitle: 'Cypress no fluxo crítico',
+    icon: 'e2e',
+    durationMs: 780,
+    bullets: [
+      'Fluxo crítico testado no navegador, não na intenção',
+      'Ambiente efêmero com dado semeado — sem depender de base compartilhada',
+      'Poucos e estáveis: E2E flaky é pior que E2E ausente',
+    ],
+    cloud: {
+      [CloudProviders.Azure]: 'slot de staging',
+      [CloudProviders.Aws]: 'ambiente efêmero no ECS',
+      [CloudProviders.DigitalOcean]: 'app de preview',
+    },
+    tags: ['Cypress', 'Qualidade'],
+  },
+  {
+    id: 'load',
+    title: 'Teste de carga',
+    subtitle: 'K6 com p95 como critério',
+    icon: 'load',
+    durationMs: 760,
+    bullets: [
+      'Carga no pipeline: p95 e taxa de erro são critério de aceite, não curiosidade',
+      'Compara com o baseline da versão anterior — regressão de performance é bug',
+      'É aqui que eu acho o gargalo antes do cliente achar (a aba Arquitetura mostra o efeito)',
+    ],
+    cloud: {
+      [CloudProviders.Azure]: 'job de carga + Application Insights',
+      [CloudProviders.Aws]: 'job de carga + CloudWatch',
+      [CloudProviders.DigitalOcean]: 'job de carga + Grafana',
+    },
+    tags: ['K6', 'Performance'],
   },
   {
     id: 'sonar',
     title: 'SonarQube',
     subtitle: 'Quality gate',
     icon: 'sonar',
-    durationMs: 900,
+    durationMs: 800,
     bullets: [
       'Gate no PR: cobertura do código novo, duplicação, security hotspot',
       'Gate vermelho bloqueia merge — qualidade não é combinado verbal',
@@ -299,42 +414,46 @@ export const PIPELINE_STEPS: readonly PipelineStep[] = [
     cloud: {
       [CloudProviders.Azure]: 'SonarCloud / SonarQube self-hosted',
       [CloudProviders.Aws]: 'SonarCloud / SonarQube self-hosted',
+      [CloudProviders.DigitalOcean]: 'SonarQube em Droplet',
     },
-    tags: ['Sonar', 'Clean Code'],
+    tags: ['SonarQube', 'Clean Code'],
   },
   {
     id: 'deploy',
     title: 'Deploy',
-    subtitle: 'Blue/green + migration',
+    subtitle: 'Docker + Kubernetes',
     icon: 'deploy',
-    durationMs: 900,
+    durationMs: 800,
     bullets: [
+      'Rolling update no Kubernetes com health check e readiness probe',
       'Migration compatível com a versão anterior — deploy sem downtime',
-      'Health check antes de receber tráfego; rollback é botão, não milagre',
-      'Segredo em cofre, nunca no appsettings do repositório',
+      'Rollback é botão, não milagre. Segredo em cofre, nunca no appsettings',
     ],
     cloud: {
-      [CloudProviders.Azure]: 'Container Apps + Key Vault',
-      [CloudProviders.Aws]: 'ECS Fargate + Secrets Manager',
+      [CloudProviders.Azure]: 'AKS / Container Apps + Key Vault',
+      [CloudProviders.Aws]: 'EKS / ECS Fargate + Secrets Manager',
+      [CloudProviders.DigitalOcean]: 'DOKS / App Platform',
     },
-    tags: ['Cloud', 'CD'],
+    tags: ['Kubernetes', 'CD'],
   },
   {
     id: 'observability',
     title: 'Observabilidade',
-    subtitle: 'Log, métrica e trace',
+    subtitle: 'Dynatrace + Grafana',
     icon: 'observability',
-    durationMs: 700,
+    durationMs: 620,
     bullets: [
       'OpenTelemetry + Serilog com correlation id ponta a ponta',
-      'Alerta em cima de sintoma do usuário: erro, latência, fila',
+      'Dashboard no Grafana, trace e diagnóstico no Dynatrace',
+      'Alerta em cima de sintoma do usuário: erro, latência, fila crescendo',
       'Sem isso, o próximo incidente vira achismo',
     ],
     cloud: {
-      [CloudProviders.Azure]: 'Application Insights',
-      [CloudProviders.Aws]: 'CloudWatch + X-Ray',
+      [CloudProviders.Azure]: 'Application Insights + Grafana',
+      [CloudProviders.Aws]: 'CloudWatch + X-Ray + Grafana',
+      [CloudProviders.DigitalOcean]: 'Grafana self-hosted',
     },
-    tags: ['Observabilidade', 'SRE'],
+    tags: ['Dynatrace', 'Grafana', 'Observabilidade'],
   },
 ] as const
 

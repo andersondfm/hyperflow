@@ -10,9 +10,10 @@ import { useDeliveryStore } from '@/store/deliveryStore'
 import { cn } from '@/lib/utils'
 
 const DEMO_SCRIPT: readonly string[] = [
-  'GET /' + PROFILE.resource + ' — cache frio, cai no read model',
+  `GET /${PROFILE.resource} — cache frio, cai no read model`,
   'GET de novo — Redis HIT, latência despenca',
-  'POST — domínio valida, SQL Server confirma, evento projeta no Mongo',
+  'POST — domínio valida, SQL Server confirma, evento no broker projeta o Mongo',
+  'Insight com IA — contexto do Mongo + OpenAI, resposta cacheada',
   'Abrir Pull Request — o quality gate reprova',
   'Escrever teste primeiro (TDD) — rodar de novo, deploy sai',
 ]
@@ -91,6 +92,20 @@ export function DetailPanel() {
           </div>
         ) : (
           <div className="space-y-2.5">
+            <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-2.5">
+              <p className="font-mono text-[9px] uppercase tracking-wider text-slate-500">
+                {PROFILE.headline} · {PROFILE.years}
+              </p>
+              <ul className="mt-1.5 space-y-1">
+                {PROFILE.highlights.map((item) => (
+                  <li key={item} className="flex gap-2 text-[11px] leading-snug text-slate-300">
+                    <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-violet-400" />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
             <div className="flex items-center gap-1.5">
               <Sparkles className="h-3.5 w-3.5 text-cyan-300" />
               <p className="font-mono text-[10px] uppercase tracking-wider text-slate-500">

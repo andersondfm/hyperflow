@@ -1,8 +1,17 @@
-import { CLOUD_LABEL, CloudProviders, type CloudProvider } from '@/data/fullstackProfile'
+import {
+  CLOUD_LABEL,
+  CLOUD_SHORT,
+  CloudProviders,
+  type CloudProvider,
+} from '@/data/fullstackProfile'
 import { useDeliveryStore } from '@/store/deliveryStore'
 import { cn } from '@/lib/utils'
 
-const OPTIONS: readonly CloudProvider[] = [CloudProviders.Azure, CloudProviders.Aws]
+const OPTIONS: readonly CloudProvider[] = [
+  CloudProviders.Azure,
+  CloudProviders.Aws,
+  CloudProviders.DigitalOcean,
+]
 
 export function CloudToggle() {
   const cloud = useDeliveryStore((s) => s.cloud)
@@ -18,6 +27,7 @@ export function CloudToggle() {
           key={option}
           type="button"
           onClick={() => setCloud(option)}
+          title={CLOUD_LABEL[option]}
           className={cn(
             'rounded-md px-2 py-1 font-mono text-[10px] font-semibold uppercase tracking-wider transition',
             cloud === option
@@ -25,7 +35,7 @@ export function CloudToggle() {
               : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100',
           )}
         >
-          {CLOUD_LABEL[option]}
+          {CLOUD_SHORT[option]}
         </button>
       ))}
     </div>
