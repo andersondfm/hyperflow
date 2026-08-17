@@ -87,8 +87,12 @@ export function MetricCards() {
     {
       label: 'Queue Depth',
       value: rabbit ? formatNumber(rabbit.queueDepth) : '—',
-      hint: rabbit?.overflow ? 'OVERFLOW' : 'mensagens',
-      alert: rabbit?.overflow === true,
+      hint: rabbit?.overflow
+        ? rabbit.consumeRate > rabbit.publishRate
+          ? 'DRENANDO'
+          : 'OVERFLOW'
+        : 'mensagens',
+      alert: rabbit?.overflow === true && rabbit.consumeRate <= rabbit.publishRate,
     },
     {
       label: 'PG Latency',

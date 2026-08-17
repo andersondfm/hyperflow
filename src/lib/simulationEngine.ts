@@ -38,6 +38,7 @@ const BASELINE = {
 const MAX_HISTORY = 40
 const MAX_LOGS = 80
 const QUEUE_OVERFLOW_THRESHOLD = 5_000
+const QUEUE_OVERFLOW_CLEAR = 3_500
 const QUEUE_WARNING_THRESHOLD = 1_500
 const MAX_DEAD_LETTERS = 25_000
 const PER_WORKER_CONSUME = 39
@@ -47,8 +48,18 @@ const RATE_LIMIT_TARGET_INTENSITY = 2.4
 const RATE_LIMIT_LERP = 0.2
 const CACHE_TARGET_HIT = 97.6
 const CACHE_LERP = 0.24
+const QUEUE_GROWTH_COEFF = 0.35
+const QUEUE_DRAIN_COEFF = 1.15
+const QUEUE_RECOVERY_DRAIN_COEFF = 1.4
 const QUEUE_MIN_DROP_RATIO = 0.11
 const QUEUE_MAX_DROP_RATIO = 0.17
+const QUEUE_RECOVERY_MIN_DROP_RATIO = 0.1
+const QUEUE_RECOVERY_MAX_DROP_RATIO = 0.15
+const QUEUE_OVERFLOW_RECOVERY_MIN_DROP_RATIO = 0.13
+const QUEUE_OVERFLOW_RECOVERY_MAX_DROP_RATIO = 0.18
+
+/** Depth above which the UI ticker should stay on the fast interval after a spike. */
+export const QUEUE_FAST_TICK_DEPTH = 200
 
 export interface BaselineMetrics {
   gateway: ApiGatewayMetrics
@@ -492,9 +503,35 @@ export function simulateTick(ctx: TickContext): TickResult {
     const m = previous[id] as RabbitMQMetrics | undefined
     return sum + (m?.queueDepth ?? 0)
   }, 0)
+  const consumerChaos = [...workerIds, ...containerIds].some((id) => Boolean(getFault(failedNodeIds, id)))
+  const recovering = !isLoadTestActive && prevQueueTotal > BASELINE.queueDepth
+
+  if (recovering && !consumerChaos && prevQueueTotal > QUEUE_FAST_TICK_DEPTH) {
+    const backlogBoost = Math.round(clamp(36 + prevQueueTotal * 0.012, 36, 80))
+    consumeCapacity = Math.max(consumeCapacity, publishRate + backlogBoost)
+  }
+
   const queueDelta = publishRate - consumeCapacity
-  let nextQueueTotal = Math.max(0, Math.round(prevQueueTotal + queueDelta * 0.35 + jitter(5)))
-  if (isLoadTestActive && queueRelief && prevQueueTotal > BASELINE.queueDepth) {
+  const draining = consumeCapacity > publishRate
+  const drainCoeff = recovering || queueRelief ? QUEUE_RECOVERY_DRAIN_COEFF : QUEUE_DRAIN_COEFF
+  const coeff = draining ? drainCoeff : QUEUE_GROWTH_COEFF
+  let nextQueueTotal = Math.max(0, Math.round(prevQueueTotal + queueDelta * coeff + jitter(5)))
+
+  if (recovering && draining && prevQueueTotal >= QUEUE_OVERFLOW_CLEAR) {
+    const extraCapacity = consumeCapacity - publishRate
+    const overflowBonus = Math.round(Math.min(prevQueueTotal * 0.05, 420) + extraCapacity * 0.25)
+    nextQueueTotal = Math.max(0, nextQueueTotal - overflowBonus)
+  }
+
+  if (recovering && !consumerChaos && prevQueueTotal > BASELINE.queueDepth) {
+    const highPressure = prevQueueTotal >= QUEUE_OVERFLOW_CLEAR
+    const minRatio = highPressure ? QUEUE_OVERFLOW_RECOVERY_MIN_DROP_RATIO : QUEUE_RECOVERY_MIN_DROP_RATIO
+    const maxRatio = highPressure ? QUEUE_OVERFLOW_RECOVERY_MAX_DROP_RATIO : QUEUE_RECOVERY_MAX_DROP_RATIO
+    const minNext = Math.round(prevQueueTotal * (1 - maxRatio))
+    const maxNext = Math.round(prevQueueTotal * (1 - minRatio))
+    nextQueueTotal = clamp(nextQueueTotal, minNext, Math.min(maxNext, prevQueueTotal))
+    nextQueueTotal = Math.max(BASELINE.queueDepth, nextQueueTotal)
+  } else if (isLoadTestActive && queueRelief && prevQueueTotal > BASELINE.queueDepth) {
     const minNext = Math.round(prevQueueTotal * (1 - QUEUE_MAX_DROP_RATIO))
     const maxNext = Math.round(prevQueueTotal * (1 - QUEUE_MIN_DROP_RATIO))
     nextQueueTotal = clamp(Math.min(nextQueueTotal, maxNext), minNext, prevQueueTotal)
@@ -506,7 +543,10 @@ export function simulateTick(ctx: TickContext): TickResult {
 
   for (const id of rabbitIds) {
     const share = brokerCount > 0 ? Math.max(0, Math.round(nextQueueTotal / brokerCount + jitter(4))) : 0
-    const overflow = share >= QUEUE_OVERFLOW_THRESHOLD
+    const prevRabbit = previous[id] as RabbitMQMetrics | undefined
+    const prevOverflow = prevRabbit?.overflow ?? false
+    const overflow =
+      share >= QUEUE_OVERFLOW_THRESHOLD || (prevOverflow && share >= QUEUE_OVERFLOW_CLEAR)
     const rabbit: RabbitMQMetrics = {
       queueDepth: share,
       publishRate: brokerCount > 0 ? Math.round(publishRate / brokerCount) : 0,
@@ -518,13 +558,21 @@ export function simulateTick(ctx: TickContext): TickResult {
     if (overflow) anyOverflow = true
   }
 
-  if (anyOverflow) {
+  if (anyOverflow && isLoadTestActive) {
     logs.push({
       id: createId('log'),
       timestamp: now,
       level: 'error',
       source: rabbitIds[0] ?? 'rabbitmq',
       message: `Fila em overflow: ${hottestQueue.toLocaleString('pt-BR')} mensagens no broker mais quente`,
+    })
+  } else if (recovering && nextQueueTotal < prevQueueTotal && hottestQueue > QUEUE_FAST_TICK_DEPTH && Math.random() > 0.72) {
+    logs.push({
+      id: createId('log'),
+      timestamp: now,
+      level: 'success',
+      source: rabbitIds[0] ?? 'rabbitmq',
+      message: `Fila drenando — profundidade ${Math.round(nextQueueTotal).toLocaleString('pt-BR')}`,
     })
   } else if (hottestQueue > QUEUE_WARNING_THRESHOLD && isLoadTestActive && !queueRelief) {
     logs.push({
@@ -662,8 +710,12 @@ export function simulateTick(ctx: TickContext): TickResult {
 
   let dlqReason = '—'
   let dlqDelta = 0
-  if (anyOverflow) {
-    dlqDelta += Math.round(48 + jitter(16))
+  const overflowStillCrushing = anyOverflow && publishRate > consumeCapacity
+  if (overflowStillCrushing) {
+    dlqDelta += Math.round((isLoadTestActive ? 48 : 12) + jitter(isLoadTestActive ? 16 : 4))
+    dlqReason = 'Overflow na fila'
+  } else if (anyOverflow && isLoadTestActive) {
+    dlqDelta += Math.round(8 + jitter(4))
     dlqReason = 'Overflow na fila'
   }
   if (circuitOpen) {

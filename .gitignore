@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Personal / job-hunt material (keep local, never publish)
+private/
+docs/roteiro-entrevista.md
+docs/linkedin-post.md

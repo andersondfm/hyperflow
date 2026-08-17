@@ -3,7 +3,7 @@ import { Layers } from 'lucide-react'
 import type { HyperFlowNodeData, RabbitMQMetrics } from '@/types/nodes'
 import { useSimulationStore } from '@/store/simulationStore'
 import { formatNumber } from '@/lib/utils'
-import { computeHealth } from '@/lib/simulationEngine'
+import { computeHealth, QUEUE_FAST_TICK_DEPTH } from '@/lib/simulationEngine'
 import { NodeKinds } from '@/types/nodes'
 import { cn } from '@/lib/utils'
 import { BaseNode, Meter, MetricRow } from './BaseNode'
@@ -19,6 +19,8 @@ export function RabbitMQNode({ id, data }: NodeProps) {
     ? computeHealth(NodeKinds.RabbitMQ, storeMetrics)
     : nodeData.health
 
+  const draining =
+    metrics.consumeRate > metrics.publishRate && metrics.queueDepth > QUEUE_FAST_TICK_DEPTH
   const queueTone =
     metrics.overflow || metrics.queueDepth >= 5_000
       ? 'rose'
@@ -39,11 +41,18 @@ export function RabbitMQNode({ id, data }: NodeProps) {
       {metrics.overflow && (
         <div
           className={cn(
-            'rounded-md border border-rose-500/40 bg-rose-500/10 px-2 py-1.5',
-            'animate-pulse font-mono text-[10px] font-semibold uppercase tracking-wide text-rose-300',
+            'rounded-md border px-2 py-1.5 font-mono text-[10px] font-semibold uppercase tracking-wide',
+            draining
+              ? 'border-amber-500/40 bg-amber-500/10 text-amber-200'
+              : 'animate-pulse border-rose-500/40 bg-rose-500/10 text-rose-300',
           )}
         >
-          Overflow — fila estourada
+          {draining ? 'Overflow — drenando' : 'Overflow — fila estourada'}
+        </div>
+      )}
+      {!metrics.overflow && draining && (
+        <div className="rounded-md border border-cyan-500/35 bg-cyan-500/10 px-2 py-1.5 font-mono text-[10px] font-semibold uppercase tracking-wide text-cyan-300">
+          Drenando — consume &gt; publish
         </div>
       )}
       <MetricRow
