@@ -11,11 +11,12 @@ export function ApiGatewayNode({ id, data }: NodeProps) {
     | ApiGatewayMetrics
     | undefined
   const isLoadActive = useSimulationStore((s) => s.isLoadTestActive)
+  const rateLimited = useSimulationStore((s) => s.activeMitigations.rateLimit)
   const metrics = (storeMetrics ?? nodeData.metrics) as ApiGatewayMetrics
   const health = useSimulationStore((s) => {
     const m = s.nodeMetrics[id] as ApiGatewayMetrics | undefined
     if (!m) return nodeData.health
-    if (m.errorRate >= 8) return 'critical' as const
+    if (m.errorRate >= 8 && !s.activeMitigations.rateLimit) return 'critical' as const
     if (m.errorRate >= 2 || s.isLoadTestActive) return 'warning' as const
     return 'healthy' as const
   })
@@ -33,18 +34,26 @@ export function ApiGatewayNode({ id, data }: NodeProps) {
       <MetricRow
         label="RPS"
         value={formatNumber(metrics.requestsPerSecond)}
-        tone={isLoadActive ? 'warning' : 'default'}
+        tone={isLoadActive && !rateLimited ? 'warning' : 'default'}
       />
       <Meter
         value={metrics.requestsPerSecond}
-        max={isLoadActive ? 12_000 : 400}
-        tone={isLoadActive ? 'amber' : 'cyan'}
+        max={isLoadActive && !rateLimited ? 12_000 : 400}
+        tone={isLoadActive && !rateLimited ? 'amber' : 'cyan'}
       />
       <MetricRow label="Conexões" value={formatNumber(metrics.activeConnections)} />
       <MetricRow
-        label="Error rate"
+        label={rateLimited ? 'Throttle 429' : 'Error rate'}
         value={`${formatNumber(metrics.errorRate, 1)}%`}
-        tone={metrics.errorRate >= 5 ? 'critical' : metrics.errorRate >= 2 ? 'warning' : 'success'}
+        tone={
+          rateLimited
+            ? 'warning'
+            : metrics.errorRate >= 5
+              ? 'critical'
+              : metrics.errorRate >= 2
+                ? 'warning'
+                : 'success'
+        }
       />
     </BaseNode>
   )

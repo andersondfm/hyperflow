@@ -98,7 +98,8 @@ export function Sidebar() {
             Demo 2 min
           </p>
           <p className="mt-1 text-xs leading-relaxed text-slate-400">
-            Dispare o pico, suba uma réplica, injete chaos no Postgres e reprocesse a DLQ.
+            Dispare o pico, aplique uma mitigação no playbook, injete chaos no Postgres e reprocesse a
+            DLQ.
           </p>
         </div>
       </div>

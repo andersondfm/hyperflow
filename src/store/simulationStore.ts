@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type {
   ChaosFault,
+  MitigationId,
   NodeKind,
   NodeMetricsMap,
   RabbitMQMetrics,
@@ -17,6 +18,7 @@ import {
   metricsForRegisteredKinds,
   simulateTick,
 } from '@/lib/simulationEngine'
+import { emptyMitigations, mitigationById } from '@/lib/mitigations'
 import { createId, kindLabel } from '@/lib/utils'
 
 interface SimulationState {
@@ -30,10 +32,13 @@ interface SimulationState {
   failedNodeIds: Record<string, ChaosFault>
   throughputHistory: ThroughputSample[]
   logs: SimulationLog[]
+  activeMitigations: Record<MitigationId, boolean>
   tick: () => void
   triggerLoadSpike: () => void
   stopLoadSpike: () => void
   resetSimulation: () => void
+  applyMitigation: (id: MitigationId) => void
+  clearMitigations: () => void
   pushLog: (log: Omit<SimulationLog, 'id' | 'timestamp'> & { timestamp?: number }) => void
   registerNode: (id: string, kind: NodeKind) => void
   unregisterNode: (id: string) => void
@@ -70,6 +75,7 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
   failedNodeIds: {},
   throughputHistory: [],
   logs: [bootLog()],
+  activeMitigations: emptyMitigations(),
 
   tick: () => {
     const {
@@ -81,6 +87,7 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
       deadLetters,
       throughputHistory,
       logs,
+      activeMitigations,
     } = get()
     const result = simulateTick({
       nodeMetrics,
@@ -89,6 +96,7 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
       loadMultiplier,
       isLoadTestActive,
       deadLetters,
+      activeMitigations,
     })
     set({
       nodeMetrics: result.nodeMetrics,
@@ -150,6 +158,7 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
       nodeMetrics: metricsForRegisteredKinds(nodeKinds),
       failedNodeIds: {},
       throughputHistory: [],
+      activeMitigations: emptyMitigations(),
       logs: [
         {
           id: createId('log'),
@@ -159,6 +168,30 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
           message: 'Simulação reiniciada para baseline (topologia do canvas preservada)',
         },
       ],
+    })
+  },
+
+  applyMitigation: (id) => {
+    const { activeMitigations } = get()
+    if (activeMitigations[id]) return
+    set({
+      activeMitigations: { ...activeMitigations, [id]: true },
+    })
+    get().pushLog({
+      level: 'success',
+      source: 'playbook',
+      message: mitigationById(id).logMessage,
+    })
+  },
+
+  clearMitigations: () => {
+    const { activeMitigations } = get()
+    if (!Object.values(activeMitigations).some(Boolean)) return
+    set({ activeMitigations: emptyMitigations() })
+    get().pushLog({
+      level: 'info',
+      source: 'playbook',
+      message: 'Mitigações revertidas — alavancas desligadas (pico ainda pode estar ativo)',
     })
   },
 

@@ -3,10 +3,13 @@ import { useSimulationStore } from '@/store/simulationStore'
 import { formatNumber } from '@/lib/utils'
 import { NodeKinds } from '@/types/nodes'
 import { findMetricsByKind, hottestRabbitMetrics } from '@/lib/simulationEngine'
+import { countActiveMitigations } from '@/lib/mitigations'
 
 export function ThroughputChart() {
   const history = useSimulationStore((s) => s.throughputHistory)
   const isLoadActive = useSimulationStore((s) => s.isLoadTestActive)
+  const recovering = useSimulationStore((s) => countActiveMitigations(s.activeMitigations) > 0)
+  const hot = isLoadActive && !recovering
 
   const { path, maxRps } = useMemo(() => {
     if (history.length < 2) {
@@ -36,8 +39,8 @@ export function ThroughputChart() {
       <svg viewBox="0 0 280 64" className="h-16 w-full" preserveAspectRatio="none">
         <defs>
           <linearGradient id="rpsFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={isLoadActive ? '#fbbf24' : '#22d3ee'} stopOpacity="0.35" />
-            <stop offset="100%" stopColor={isLoadActive ? '#fbbf24' : '#22d3ee'} stopOpacity="0" />
+            <stop offset="0%" stopColor={hot ? '#fbbf24' : '#22d3ee'} stopOpacity="0.35" />
+            <stop offset="100%" stopColor={hot ? '#fbbf24' : '#22d3ee'} stopOpacity="0" />
           </linearGradient>
         </defs>
         {path && (
@@ -49,7 +52,7 @@ export function ThroughputChart() {
             <path
               d={path}
               fill="none"
-              stroke={isLoadActive ? '#fbbf24' : '#22d3ee'}
+              stroke={hot ? '#fbbf24' : '#22d3ee'}
               strokeWidth="2"
               strokeLinejoin="round"
               strokeLinecap="round"

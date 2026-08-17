@@ -18,6 +18,7 @@ import '@xyflow/react/dist/style.css'
 import { nodeTypes } from '@/components/nodes'
 import { edgeTypes } from '@/components/canvas/AnimatedEdge'
 import { FinOpsCard } from '@/components/telemetry/FinOpsCard'
+import { MitigationPlaybook } from '@/components/telemetry/MitigationPlaybook'
 import { initialEdges, initialNodes, type HyperFlowNode } from '@/data/initialFlow'
 import { NodeKinds, HealthLevels, type HyperFlowNodeData } from '@/types/nodes'
 import { createMetricsForKind } from '@/lib/simulationEngine'
@@ -178,6 +179,12 @@ function FlowCanvasInner() {
       <div className="pointer-events-none absolute left-4 top-4 z-10 w-64">
         <div className="pointer-events-auto">
           <FinOpsCard variant="floating" />
+        </div>
+      </div>
+
+      <div className="pointer-events-none absolute right-4 top-4 z-10 w-72">
+        <div className="pointer-events-auto">
+          <MitigationPlaybook />
         </div>
       </div>
 

@@ -52,6 +52,15 @@ export const QualityGates = {
 
 export type QualityGate = (typeof QualityGates)[keyof typeof QualityGates]
 
+export const MitigationIds = {
+  RateLimit: 'rateLimit',
+  Autoscale: 'autoscale',
+  AggressiveCache: 'aggressiveCache',
+  ReadReplica: 'readReplica',
+} as const
+
+export type MitigationId = (typeof MitigationIds)[keyof typeof MitigationIds]
+
 export interface ApiGatewayMetrics {
   requestsPerSecond: number
   activeConnections: number
@@ -161,4 +170,5 @@ export interface SimulationSnapshot {
   nodeMetrics: Record<string, NodeMetricsMap[NodeKind]>
   nodeKinds: Record<string, NodeKind>
   failedNodeIds: Record<string, ChaosFault>
+  activeMitigations: Record<MitigationId, boolean>
 }

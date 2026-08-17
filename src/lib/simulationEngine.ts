@@ -5,6 +5,7 @@ import type {
   DlqMetrics,
   HealthLevel,
   IntegrationTestMetrics,
+  MitigationId,
   NodeKind,
   NodeMetricsMap,
   PostgresMetrics,
@@ -15,6 +16,7 @@ import type {
   ThroughputSample,
   WorkerMetrics,
 } from '@/types/nodes'
+import { MitigationIds } from '@/types/nodes'
 import {
   ChaosFaults,
   CircuitStates,
@@ -40,6 +42,13 @@ const QUEUE_WARNING_THRESHOLD = 1_500
 const MAX_DEAD_LETTERS = 25_000
 const PER_WORKER_CONSUME = 39
 const PER_CONTAINER_CONSUME = 44
+const AUTOSCALE_VIRTUAL_REPLICAS = 3
+const RATE_LIMIT_TARGET_INTENSITY = 2.4
+const RATE_LIMIT_LERP = 0.2
+const CACHE_TARGET_HIT = 97.6
+const CACHE_LERP = 0.24
+const QUEUE_MIN_DROP_RATIO = 0.11
+const QUEUE_MAX_DROP_RATIO = 0.17
 
 export interface BaselineMetrics {
   gateway: ApiGatewayMetrics
@@ -175,6 +184,10 @@ function jitter(amplitude: number): number {
   return (Math.random() * 2 - 1) * amplitude
 }
 
+function lerp(from: number, to: number, t: number): number {
+  return from + (to - from) * t
+}
+
 function idsOfKind(kinds: Record<string, NodeKind>, kind: NodeKind): string[] {
   const ids: string[] = []
   for (const [id, k] of Object.entries(kinds)) {
@@ -256,6 +269,7 @@ export interface TickContext {
   loadMultiplier: number
   isLoadTestActive: boolean
   deadLetters: number
+  activeMitigations: Record<MitigationId, boolean>
 }
 
 export interface TickResult {
@@ -275,9 +289,18 @@ export function computeEstimatedCost(opts: {
   counts: Record<NodeKind, number>
   postgresDown: boolean
   redisFault: boolean
+  autoscaleReplicas?: number
 }): number {
-  const { intensity, isLoadTestActive, totalRps, redisHitRate, counts, postgresDown, redisFault } =
-    opts
+  const {
+    intensity,
+    isLoadTestActive,
+    totalRps,
+    redisHitRate,
+    counts,
+    postgresDown,
+    redisFault,
+    autoscaleReplicas = 0,
+  } = opts
 
   const inventory =
     counts[NodeKinds.ApiGateway] * 0.9 +
@@ -288,12 +311,13 @@ export function computeEstimatedCost(opts: {
     counts[NodeKinds.Container] * 2.4 +
     counts[NodeKinds.IntegrationTest] * 0.35 +
     counts[NodeKinds.Sonar] * 0.45 +
-    counts[NodeKinds.Dlq] * 0.15
+    counts[NodeKinds.Dlq] * 0.15 +
+    autoscaleReplicas * 2.4
 
   const rpsFactor = Math.max(totalRps, 0) / 120
   const cacheMiss = clamp((100 - redisHitRate) / 100, 0.02, 1)
   const computeScale = isLoadTestActive ? 1 + (intensity - 1) * 0.55 : 1
-  const computeUnits = counts[NodeKinds.Worker] + counts[NodeKinds.Container]
+  const computeUnits = counts[NodeKinds.Worker] + counts[NodeKinds.Container] + autoscaleReplicas
   const postgresFactor = counts[NodeKinds.Postgres] === 0 ? 0 : counts[NodeKinds.Postgres]
 
   let traffic =
@@ -314,6 +338,11 @@ export function computeEstimatedCost(opts: {
 export function simulateTick(ctx: TickContext): TickResult {
   const { nodeMetrics: previous, nodeKinds, failedNodeIds, loadMultiplier, isLoadTestActive } = ctx
   const intensity = isLoadTestActive ? loadMultiplier : 1
+  const rateLimit = Boolean(ctx.activeMitigations[MitigationIds.RateLimit])
+  const autoscale = Boolean(ctx.activeMitigations[MitigationIds.Autoscale])
+  const aggressiveCache = Boolean(ctx.activeMitigations[MitigationIds.AggressiveCache])
+  const readReplica = Boolean(ctx.activeMitigations[MitigationIds.ReadReplica])
+  const queueRelief = rateLimit || autoscale
   const next: Record<string, NodeMetricsMap[NodeKind]> = {}
   const logs: SimulationLog[] = []
   const now = Date.now()
@@ -344,30 +373,54 @@ export function simulateTick(ctx: TickContext): TickResult {
   const workerFaultCount = workerIds.filter((id) => Boolean(getFault(failedNodeIds, id))).length
 
   let totalRps = 0
-  let gatewayErrorAcc = 0
+  let backendErrorAcc = 0
 
   for (const id of gatewayIds) {
     const fault = getFault(failedNodeIds, id)
     const weight = consumeWeight(fault)
-    const rps = clamp(BASELINE.gatewayRps * intensity * weight + jitter(18 * intensity * Math.max(weight, 0.15)), 0, 12_000)
-    const errorRate = postgresDown
+    const uncappedRps = clamp(
+      BASELINE.gatewayRps * intensity * weight + jitter(18 * intensity * Math.max(weight, 0.15)),
+      0,
+      12_000,
+    )
+    const capRps = BASELINE.gatewayRps * RATE_LIMIT_TARGET_INTENSITY * Math.max(weight, 0.15)
+    const prevGateway = previous[id] as ApiGatewayMetrics | undefined
+    let rps = uncappedRps
+    if (rateLimit && isLoadTestActive && (uncappedRps > capRps || (prevGateway?.requestsPerSecond ?? 0) > capRps)) {
+      rps = lerp(prevGateway?.requestsPerSecond ?? uncappedRps, capRps, RATE_LIMIT_LERP)
+    }
+
+    const backendError = postgresDown
       ? clamp(18 + jitter(4), 12, 36)
       : allRedisDown
         ? clamp(2.4 * intensity + jitter(0.8), 1, 28)
         : clamp(0.2 * intensity + jitter(0.3), 0, 25)
+    const throttleError =
+      rateLimit && isLoadTestActive && !postgresDown ? clamp(7.0 + jitter(0.5), 6.2, 7.8) : 0
+    const errorRate = Number(clamp(backendError + throttleError, 0, 36).toFixed(1))
+
+    const connTarget = rateLimit && isLoadTestActive ? 48 * RATE_LIMIT_TARGET_INTENSITY : 48 * intensity
+    const prevConn = prevGateway?.activeConnections ?? connTarget
+    const connections =
+      rateLimit && isLoadTestActive ? lerp(prevConn, connTarget, RATE_LIMIT_LERP) : connTarget
+
     const metrics: ApiGatewayMetrics = {
       requestsPerSecond: Math.round(rps),
-      activeConnections: Math.round((48 * intensity + jitter(10)) * Math.max(weight, 0.2)),
-      errorRate: Number(errorRate.toFixed(1)),
+      activeConnections: Math.round((connections + jitter(10)) * Math.max(weight, 0.2)),
+      errorRate,
     }
     next[id] = metrics
     totalRps += metrics.requestsPerSecond
-    gatewayErrorAcc += metrics.errorRate
+    backendErrorAcc += backendError
   }
 
   totalRps = Math.round(totalRps)
   const gatewayFactor = gatewayIds.length === 0 ? 0 : 1
-  const avgGatewayError = gatewayIds.length > 0 ? gatewayErrorAcc / gatewayIds.length : 0
+  const avgBackendError = gatewayIds.length > 0 ? backendErrorAcc / gatewayIds.length : 0
+  const ingressIntensity =
+    gatewayIds.length === 0
+      ? intensity
+      : clamp(totalRps / (BASELINE.gatewayRps * gatewayIds.length), 0.4, 12)
 
   const extraRedisBoost = Math.max(0, redisIds.length - 1) * 1.4
   let aggregateHit = 0
@@ -387,9 +440,14 @@ export function simulateTick(ctx: TickContext): TickResult {
       continue
     }
 
-    const hitBase = isLoadTestActive
+    const naturalHit = isLoadTestActive
       ? clamp(BASELINE.redisHitRate + extraRedisBoost - (intensity - 1) * 4 + jitter(2), 40, 99)
       : clamp(BASELINE.redisHitRate + extraRedisBoost + jitter(1.5), 85, 99)
+    const prevRedis = previous[id] as RedisMetrics | undefined
+    const targetHit = clamp(CACHE_TARGET_HIT + extraRedisBoost, 96, 99.2)
+    const hitBase = aggressiveCache
+      ? lerp(prevRedis?.hitRate ?? naturalHit, targetHit, CACHE_LERP)
+      : naturalHit
     const redis: RedisMetrics = {
       hitRate: Number(hitBase.toFixed(1)),
       missRate: Number((100 - hitBase).toFixed(1)),
@@ -420,14 +478,28 @@ export function simulateTick(ctx: TickContext): TickResult {
     consumeCapacity += (base + jitter(4)) * weight
   }
   consumeCapacity = Math.max(0, Math.round(consumeCapacity))
+  const physicalConsume = consumeCapacity
 
-  const publishRate = Math.round(80 * intensity * gatewayFactor + jitter(20 * gatewayFactor))
+  if (autoscale) {
+    const virtualBase = isLoadTestActive
+      ? PER_CONTAINER_CONSUME * Math.min(intensity * 0.55, intensity * 0.8)
+      : PER_CONTAINER_CONSUME
+    consumeCapacity += Math.round(virtualBase * AUTOSCALE_VIRTUAL_REPLICAS)
+  }
+
+  const publishRate = Math.round(80 * ingressIntensity * gatewayFactor + jitter(20 * gatewayFactor))
   const prevQueueTotal = rabbitIds.reduce((sum, id) => {
     const m = previous[id] as RabbitMQMetrics | undefined
     return sum + (m?.queueDepth ?? 0)
   }, 0)
   const queueDelta = publishRate - consumeCapacity
-  const nextQueueTotal = Math.max(0, Math.round(prevQueueTotal + queueDelta * 0.35 + jitter(5)))
+  let nextQueueTotal = Math.max(0, Math.round(prevQueueTotal + queueDelta * 0.35 + jitter(5)))
+  if (isLoadTestActive && queueRelief && prevQueueTotal > BASELINE.queueDepth) {
+    const minNext = Math.round(prevQueueTotal * (1 - QUEUE_MAX_DROP_RATIO))
+    const maxNext = Math.round(prevQueueTotal * (1 - QUEUE_MIN_DROP_RATIO))
+    nextQueueTotal = clamp(Math.min(nextQueueTotal, maxNext), minNext, prevQueueTotal)
+    nextQueueTotal = Math.max(BASELINE.queueDepth, nextQueueTotal)
+  }
   const brokerCount = rabbitIds.length
   let hottestQueue = 0
   let anyOverflow = false
@@ -454,7 +526,7 @@ export function simulateTick(ctx: TickContext): TickResult {
       source: rabbitIds[0] ?? 'rabbitmq',
       message: `Fila em overflow: ${hottestQueue.toLocaleString('pt-BR')} mensagens no broker mais quente`,
     })
-  } else if (hottestQueue > QUEUE_WARNING_THRESHOLD && isLoadTestActive) {
+  } else if (hottestQueue > QUEUE_WARNING_THRESHOLD && isLoadTestActive && !queueRelief) {
     logs.push({
       id: createId('log'),
       timestamp: now,
@@ -482,18 +554,27 @@ export function simulateTick(ctx: TickContext): TickResult {
     }
 
     const missPenalty = allRedisDown ? 2.4 : 1 + ((100 - redisHitRate) / 100) * 0.8
-    const postgresLatency = clamp(
-      (BASELINE.postgresLatency * (isLoadTestActive ? intensity * 0.9 : 1) * missPenalty) /
+    const replicaRelief = readReplica ? 0.42 : 1
+    const rawLatency = clamp(
+      (BASELINE.postgresLatency * (isLoadTestActive ? ingressIntensity * 0.9 : 1) * missPenalty * replicaRelief) /
         (1 + extraPgRelief) +
         jitter(3),
       4,
       250,
     )
+    const prevPg = previous[id] as PostgresMetrics | undefined
+    const postgresLatency =
+      (readReplica || aggressiveCache) && prevPg
+        ? lerp(prevPg.latencyMs, rawLatency, 0.22)
+        : rawLatency
+    const connBase = 22 + ingressIntensity * 8
     const postgres: PostgresMetrics = {
       latencyMs: Number(postgresLatency.toFixed(1)),
-      activeQueries: Math.round(6 * intensity * missPenalty + jitter(3)),
-      connections: Math.round(22 + intensity * 8 + jitter(4)),
-      cacheHitRatio: Number(clamp(97.5 - (intensity - 1) * 1.2 + jitter(0.4), 80, 99.5).toFixed(1)),
+      activeQueries: Math.max(0, Math.round(6 * ingressIntensity * missPenalty * (readReplica ? 0.55 : 1) + jitter(3))),
+      connections: Math.max(1, Math.round((readReplica ? connBase * 0.5 : connBase) + jitter(4))),
+      cacheHitRatio: Number(
+        clamp(97.5 - (ingressIntensity - 1) * 1.2 + (readReplica ? 1.4 : 0) + jitter(0.4), 80, 99.5).toFixed(1),
+      ),
     }
     next[id] = postgres
     worstPgLatency = Math.max(worstPgLatency, postgres.latencyMs)
@@ -520,14 +601,14 @@ export function simulateTick(ctx: TickContext): TickResult {
 
   const circuitOpen =
     postgresDown ||
-    (isLoadTestActive && intensity >= 8 && hottestQueue > 2_500) ||
-    avgGatewayError >= 12
+    (!queueRelief && isLoadTestActive && intensity >= 8 && hottestQueue > 2_500) ||
+    avgBackendError >= 12
   const halfOpen =
     !circuitOpen &&
-    (isLoadTestActive && intensity >= 5 && hottestQueue > 800)
+    (!queueRelief && isLoadTestActive && intensity >= 5 && hottestQueue > 800)
 
   const healthyConsumers = workerIds.length + containerIds.length
-  const perConsumer = healthyConsumers > 0 ? consumeCapacity / healthyConsumers : 0
+  const perConsumer = healthyConsumers > 0 ? physicalConsume / healthyConsumers : 0
 
   for (const id of workerIds) {
     const fault = getFault(failedNodeIds, id)
@@ -567,11 +648,12 @@ export function simulateTick(ctx: TickContext): TickResult {
   for (const id of containerIds) {
     const fault = getFault(failedNodeIds, id)
     const weight = consumeWeight(fault)
-    const cpu = fault
+    const rawCpu = fault
       ? clamp(fault === ChaosFaults.Down ? 2 + jitter(1) : 96 + jitter(2), 0, 100)
       : clamp((isLoadTestActive ? 28 * Math.min(intensity, 4) : 22) + jitter(8), 6, 99)
+    const cpu = autoscale && !fault ? clamp(rawCpu * 0.52, 10, 72) : rawCpu
     const container: ContainerMetrics = {
-      replicas: 1,
+      replicas: autoscale ? 1 + AUTOSCALE_VIRTUAL_REPLICAS : 1,
       cpuPercent: Number(cpu.toFixed(1)),
       processedPerSecond: Math.round(perConsumer * weight + jitter(6)),
     }
@@ -596,7 +678,7 @@ export function simulateTick(ctx: TickContext): TickResult {
     dlqDelta += Math.round(22 * workerFaultCount + jitter(8))
     dlqReason = 'Worker isolado'
   }
-  if (isLoadTestActive && hottestQueue > QUEUE_WARNING_THRESHOLD) {
+  if (isLoadTestActive && !queueRelief && hottestQueue > QUEUE_WARNING_THRESHOLD) {
     dlqDelta += Math.round(10 + jitter(4))
     if (dlqReason === '—') dlqReason = 'Pressão no pico de carga'
   }
@@ -622,7 +704,10 @@ export function simulateTick(ctx: TickContext): TickResult {
   }
 
   for (const id of testIds) {
-    const failing = postgresDown || redisFault || (isLoadTestActive && intensity >= 8 && Math.random() > 0.35)
+    const failing =
+      postgresDown ||
+      redisFault ||
+      (isLoadTestActive && !queueRelief && intensity >= 8 && Math.random() > 0.35)
     const running = isLoadTestActive && !failing
     const test: IntegrationTestMetrics = {
       lastRunStatus: failing
@@ -680,13 +765,14 @@ export function simulateTick(ctx: TickContext): TickResult {
   }
 
   const estimatedCostPerHour = computeEstimatedCost({
-    intensity,
+    intensity: ingressIntensity,
     isLoadTestActive,
     totalRps,
     redisHitRate,
     counts,
     postgresDown,
     redisFault,
+    autoscaleReplicas: autoscale ? AUTOSCALE_VIRTUAL_REPLICAS : 0,
   })
 
   if (isLoadTestActive && Math.random() > 0.78) {
@@ -702,13 +788,33 @@ export function simulateTick(ctx: TickContext): TickResult {
     })
   }
 
+  if (rateLimit && isLoadTestActive && Math.random() > 0.82) {
+    logs.push({
+      id: createId('log'),
+      timestamp: now,
+      level: 'warn',
+      source: gatewayIds[0] ?? 'gateway',
+      message: 'Gateway — 429 Too Many Requests (throttle). Ingress limitado',
+    })
+  }
+
+  if (queueRelief && isLoadTestActive && nextQueueTotal < prevQueueTotal && Math.random() > 0.78) {
+    logs.push({
+      id: createId('log'),
+      timestamp: now,
+      level: 'success',
+      source: rabbitIds[0] ?? 'rabbitmq',
+      message: `Fila drenando — profundidade ${Math.round(nextQueueTotal).toLocaleString('pt-BR')}`,
+    })
+  }
+
   if (isLoadTestActive && Math.random() > 0.7) {
     logs.push({
       id: createId('log'),
       timestamp: now,
       level: 'info',
       source: 'load-simulator',
-      message: `Pico ativo — throughput ~${totalRps.toLocaleString('pt-BR')} RPS (×${intensity.toFixed(0)})`,
+      message: `Pico ativo — throughput ~${totalRps.toLocaleString('pt-BR')} RPS (×${ingressIntensity.toFixed(0)})`,
     })
   }
 

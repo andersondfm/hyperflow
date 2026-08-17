@@ -1,16 +1,20 @@
-import { Activity, RotateCcw, Skull, Zap } from 'lucide-react'
+import { Activity, RotateCcw, Shield, Skull, Zap } from 'lucide-react'
 import { useSimulationStore } from '@/store/simulationStore'
 import { formatNumber, cn } from '@/lib/utils'
 import { FinOpsCard } from '@/components/telemetry/FinOpsCard'
+import { countActiveMitigations } from '@/lib/mitigations'
 
 export function Header() {
   const isLoadTestActive = useSimulationStore((s) => s.isLoadTestActive)
   const totalRps = useSimulationStore((s) => s.totalRps)
   const chaosCount = useSimulationStore((s) => Object.keys(s.failedNodeIds).length)
+  const mitigationCount = useSimulationStore((s) => countActiveMitigations(s.activeMitigations))
+  const rateLimited = useSimulationStore((s) => s.activeMitigations.rateLimit)
   const triggerLoadSpike = useSimulationStore((s) => s.triggerLoadSpike)
   const stopLoadSpike = useSimulationStore((s) => s.stopLoadSpike)
   const resetSimulation = useSimulationStore((s) => s.resetSimulation)
   const clearAllChaos = useSimulationStore((s) => s.clearAllChaos)
+  const clearMitigations = useSimulationStore((s) => s.clearMitigations)
 
   return (
     <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-800 bg-slate-950/90 px-4 backdrop-blur-md">
@@ -36,7 +40,7 @@ export function Header() {
           <span
             className={cn(
               'font-mono text-sm font-semibold tabular-nums',
-              isLoadTestActive ? 'text-amber-300' : 'text-cyan-300',
+              isLoadTestActive && !rateLimited ? 'text-amber-300' : 'text-cyan-300',
             )}
           >
             {formatNumber(totalRps)} RPS
@@ -46,6 +50,18 @@ export function Header() {
         <div className="hidden md:block">
           <FinOpsCard variant="compact" />
         </div>
+
+        {mitigationCount > 0 && (
+          <button
+            type="button"
+            onClick={clearMitigations}
+            title="Reverter mitigações"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/40 bg-cyan-500/15 px-2.5 py-1.5 text-xs font-semibold text-cyan-200 transition hover:bg-cyan-500/25"
+          >
+            <Shield className="h-3.5 w-3.5" />
+            Mitigação · {mitigationCount}
+          </button>
+        )}
 
         {chaosCount > 0 && (
           <button

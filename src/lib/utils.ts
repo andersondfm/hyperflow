@@ -118,7 +118,8 @@ export type CostTone = 'cyan' | 'amber' | 'rose'
 
 export function costTone(cost: number, isSpike: boolean): CostTone {
   if (cost >= 70) return 'rose'
-  if (isSpike || cost >= 28) return 'amber'
+  if (cost >= 28) return 'amber'
+  if (isSpike && cost >= 24) return 'amber'
   return 'cyan'
 }
 

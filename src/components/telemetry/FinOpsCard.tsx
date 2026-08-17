@@ -11,6 +11,7 @@ export function FinOpsCard({ variant }: FinOpsCardProps) {
   const cost = useSimulationStore((s) => s.estimatedCostPerHour)
   const isSpike = useSimulationStore((s) => s.isLoadTestActive)
   const history = useSimulationStore((s) => s.throughputHistory)
+  const cacheOn = useSimulationStore((s) => s.activeMitigations.aggressiveCache)
   const tone = costTone(cost, isSpike)
 
   const toneText =
@@ -68,8 +69,15 @@ export function FinOpsCard({ variant }: FinOpsCardProps) {
         <span className="ml-1 font-mono text-xs font-medium text-slate-500">/hora</span>
       </p>
       {variant === 'full' && (
-        <p className="mt-0.5 font-mono text-[10px] text-slate-600">
-          Cache Redis reduz hits no Postgres
+        <p
+          className={cn(
+            'mt-0.5 font-mono text-[10px]',
+            cacheOn ? 'text-cyan-400/80' : 'text-slate-600',
+          )}
+        >
+          {cacheOn
+            ? 'Cache agressivo — menos hits no Postgres'
+            : 'Cache Redis reduz hits no Postgres'}
         </p>
       )}
       <svg viewBox="0 0 220 36" className="mt-2 h-9 w-full" preserveAspectRatio="none">
