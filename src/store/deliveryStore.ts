@@ -57,6 +57,7 @@ interface DeliveryState {
   /** Ponta a ponta, incluindo o que roda fora da resposta. */
   totalMs: number
   cacheWarm: boolean
+  redisOn: boolean
   insightCached: boolean
   pipelineRunning: boolean
   pipelineStates: Record<string, StageState>
@@ -67,6 +68,7 @@ interface DeliveryState {
   deployed: boolean
   selectedId: string | null
   logs: DeliveryLog[]
+  setRedisOn: (on: boolean) => void
   setCloud: (cloud: CloudProvider) => void
   setWriteStrategy: (strategy: WriteStrategy) => void
   runRequest: (kind: RequestKind) => void
@@ -103,12 +105,12 @@ function layerMs(id: string): number {
 
 interface RunOptions {
   cacheWarm: boolean
-  insightCached: boolean
+  redisOn: boolean
   writeStrategy: WriteStrategy
 }
 
 /** Monta a sequência do request: leitura usa cache-aside, escrita depende da estratégia. */
-function buildRun(kind: RequestKind, flags: RunOptions, resource: string): RunStep[] {
+function buildRun(kind: RequestKind, _flags: RunOptions, resource: string): RunStep[] {
   const entryNote =
     kind === RequestKinds.Read ? 'GET' : kind === RequestKinds.Write ? 'POST' : 'INSIGHT'
   const entryMessage =
@@ -132,26 +134,27 @@ function buildRun(kind: RequestKind, flags: RunOptions, resource: string): RunSt
       log: {
         level: 'info',
         source: 'api',
-        message: 'API .NET: JWT válido, DTO aceito, entidade de domínio não vaza no contrato',
+        message: 'BFF .NET 8 recebeu a tela. Autentica e encaminha. Não grava no SQL',
       },
     },
     {
       layerId: 'application',
       ms: layerMs('application'),
-      note: kind === RequestKinds.Write ? 'Command' : 'Query',
+      note: kind === RequestKinds.Write ? 'ok' : '—',
       log: {
         level: 'info',
-        source: 'application',
+        source: 'validador',
         message:
           kind === RequestKinds.Write
-            ? 'Application: Command handler abre unidade de trabalho'
-            : 'Application: Query handler — leitura não abre transação de escrita',
+            ? 'Validador devolveu ok ao BFF. Não publica: quem envia ao Kafka é o BFF'
+            : 'Leitura não passa pelo validador',
       },
     },
   ]
 
-  if (kind === RequestKinds.Insight) {
-    if (flags.insightCached) {
+  if (kind === RequestKinds.Read) {
+    steps.splice(2, 1)
+    if (_flags.cacheWarm) {
       steps.push({
         layerId: 'redis',
         ms: layerMs('redis'),
@@ -159,59 +162,12 @@ function buildRun(kind: RequestKind, flags: RunOptions, resource: string): RunSt
         log: {
           level: 'success',
           source: 'redis',
-          message: 'Redis HIT — mesma pergunta não paga token duas vezes. IA cara é IA sem cache',
+          message: 'BFF respondeu do Redis. O SQL não foi consultado nesta leitura',
         },
       })
       return steps
     }
-
-    steps.push({
-      layerId: 'redis',
-      ms: layerMs('redis'),
-      note: 'MISS',
-      log: {
-        level: 'warn',
-        source: 'redis',
-        message: 'Redis MISS — pergunta nova, vai custar token',
-      },
-    })
-    steps.push({
-      layerId: 'mongo',
-      ms: layerMs('mongo'),
-      note: 'contexto',
-      log: {
-        level: 'info',
-        source: 'mongo',
-        message: 'Mongo entrega o contexto do domínio — o prompt recebe dado, não achismo',
-      },
-    })
-    steps.push({
-      layerId: 'ai',
-      ms: layerMs('ai'),
-      note: 'GPT',
-      log: {
-        level: 'success',
-        source: 'openai',
-        message:
-          'OpenAI responde em ~890 ms: saída validada contra schema, com timeout e fallback. Resultado cacheado',
-      },
-    })
-    return steps
-  }
-
-  if (kind === RequestKinds.Read) {
-    if (flags.cacheWarm) {
-      steps.push({
-        layerId: 'redis',
-        ms: layerMs('redis'),
-        note: 'HIT',
-        log: {
-          level: 'success',
-          source: 'redis',
-          message: 'Redis HIT — resposta sem tocar no banco. É aqui que a conta encolhe',
-        },
-      })
-    } else {
+    if (_flags.redisOn) {
       steps.push({
         layerId: 'redis',
         ms: layerMs('redis'),
@@ -219,103 +175,59 @@ function buildRun(kind: RequestKind, flags: RunOptions, resource: string): RunSt
         log: {
           level: 'warn',
           source: 'redis',
-          message: 'Redis MISS — cache frio, cai na fonte (cache-aside)',
-        },
-      })
-      steps.push({
-        layerId: 'mongo',
-        ms: layerMs('mongo'),
-        note: 'read model',
-        log: {
-          level: 'info',
-          source: 'mongo',
-          message: 'MongoDB: documento de leitura já montado — sem join caro',
+          message: 'Redis não tinha a chave. O BFF segue para o SQL e guarda a resposta',
         },
       })
     }
-  } else if (flags.writeStrategy === WriteStrategies.QueueFirst) {
-    steps.push({
-      layerId: 'messaging',
-      ms: layerMs('messaging'),
-      note: 'aceito · 202',
-      log: {
-        level: 'success',
-        source: 'messaging',
-        message:
-          'Comando aceito na fila com idempotency key — API devolve 202 e protocolo. O pico morre aqui, não no banco',
-      },
-    })
-    steps.push({
-      layerId: 'domain',
-      ms: layerMs('domain'),
-      note: 'no worker',
-      async: true,
-      log: {
-        level: 'warn',
-        source: 'domain',
-        message:
-          'A invariante roda no worker: rejeição aparece no endpoint de status, não na resposta do usuário',
-      },
-    })
     steps.push({
       layerId: 'sqlserver',
       ms: layerMs('sqlserver'),
-      note: 'commit',
-      async: true,
+      note: 'leitura',
       log: {
         level: 'success',
-        source: 'sqlserver',
-        message: 'Worker persiste no ritmo do banco — escrita nivelada, sem estourar conexão',
+        source: 'bff',
+        message: 'BFF lê o SQL do que o IDR já commitou. Kafka não entra na leitura',
       },
     })
-  } else {
-    steps.push({
-      layerId: 'domain',
-      ms: layerMs('domain'),
-      note: 'invariante',
-      log: {
-        level: 'info',
-        source: 'domain',
-        message: 'Domain: agregado valida a invariante — objeto inválido não chega ao banco',
-      },
-    })
-    steps.push({
-      layerId: 'sqlserver',
-      ms: layerMs('sqlserver'),
-      note: 'commit',
-      log: {
-        level: 'success',
-        source: 'sqlserver',
-        message: 'SQL Server: transação confirmada — fonte da verdade da escrita',
-      },
-    })
-    steps.push({
-      layerId: 'messaging',
-      ms: layerMs('messaging'),
-      note: 'outbox',
-      async: true,
-      log: {
-        level: 'info',
-        source: 'messaging',
-        message:
-          'Dispatcher publica o evento gravado na transação — sem evento fantasma se o commit falhar',
-      },
-    })
+    return steps
   }
 
-  if (kind === RequestKinds.Write) {
-    steps.push({
-      layerId: 'mongo',
-      ms: layerMs('mongo'),
-      note: 'projeção',
+  steps.push(
+    {
+      layerId: 'messaging',
+      ms: layerMs('messaging'),
+      note: '202',
+      log: {
+        level: 'success',
+        source: 'kafka',
+        message: 'BFF recebeu o ok do validador, publicou no Kafka e devolveu 202. A tela não espera o SQL',
+      },
+    },
+    {
+      layerId: 'domain',
+      ms: layerMs('domain'),
+      note: 'consome',
       async: true,
       log: {
         level: 'info',
-        source: 'mongo',
-        message:
-          'Consumidor idempotente projeta o documento de leitura (consistência eventual assumida)',
+        source: 'idr',
+        message: 'IDR consumiu o tópico. Offset só anda depois da gravação confirmada',
       },
-    })
+    },
+    {
+      layerId: 'sqlserver',
+      ms: layerMs('sqlserver'),
+      note: 'commit',
+      async: true,
+      log: {
+        level: 'success',
+        source: 'sqlserver',
+        message: 'SQL Server commitou. Se a mensagem repetir, a chave de idempotência segura',
+      },
+    },
+  )
+
+  if (_flags.redisOn) {
     steps.push({
       layerId: 'redis',
       ms: layerMs('redis'),
@@ -323,8 +235,8 @@ function buildRun(kind: RequestKind, flags: RunOptions, resource: string): RunSt
       async: true,
       log: {
         level: 'warn',
-        source: 'redis',
-        message: 'Cache invalidado pela escrita — cache velho é bug silencioso',
+        source: 'idr',
+        message: 'IDR invalidou a chave no Redis depois do commit. A próxima leitura não vê dado velho',
       },
     })
   }
@@ -334,22 +246,17 @@ function buildRun(kind: RequestKind, flags: RunOptions, resource: string): RunSt
 
 function responseMessage(
   kind: RequestKind,
-  strategy: WriteStrategy,
   responseMs: number,
-  hasAsync: boolean,
+  readFromCache: boolean,
+  redisOn: boolean,
 ): string {
   if (kind === RequestKinds.Read) {
-    return `200 OK em ~${responseMs} ms — repita o GET para ver o cache quente`
+    if (!redisOn) return `200 OK em ~${responseMs} ms — o BFF leu o SQL direto`
+    return readFromCache
+      ? `200 OK em ~${responseMs} ms — o BFF respondeu do Redis, sem ir ao SQL`
+      : `200 OK em ~${responseMs} ms — Redis não tinha a chave, o BFF leu o SQL e guardou`
   }
-  if (kind === RequestKinds.Insight) {
-    return `200 OK em ~${responseMs} ms — repita o insight: o cache responde sem custo de token`
-  }
-  if (strategy === WriteStrategies.QueueFirst) {
-    return `202 Accepted em ~${responseMs} ms — cliente recebe protocolo; o worker segue sozinho`
-  }
-  return hasAsync
-    ? `201 Created em ~${responseMs} ms — o usuário só espera até o commit`
-    : `201 Created em ~${responseMs} ms`
+  return `202 Accepted em ~${responseMs} ms — o IDR grava no SQL fora da resposta`
 }
 
 function appendLogs(existing: DeliveryLog[], incoming: Omit<DeliveryLog, 'id'>[]): DeliveryLog[] {
@@ -375,6 +282,7 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
   responseMs: 0,
   totalMs: 0,
   cacheWarm: false,
+  redisOn: true,
   insightCached: false,
   pipelineRunning: false,
   pipelineStates: idlePipeline(),
@@ -402,6 +310,11 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
     }))
   },
 
+  setRedisOn: (on) => {
+    if (get().running) return
+    set({ redisOn: on, cacheWarm: false })
+  },
+
   setWriteStrategy: (strategy) => {
     if (get().running || get().writeStrategy === strategy) return
     set({ writeStrategy: strategy })
@@ -424,8 +337,8 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
     if (get().running) return
     clearTimers()
 
-    const { cacheWarm, insightCached, writeStrategy } = get()
-    const steps = buildRun(kind, { cacheWarm, insightCached, writeStrategy }, PROFILE.resource)
+    const { cacheWarm, redisOn, writeStrategy } = get()
+    const steps = buildRun(kind, { cacheWarm, redisOn, writeStrategy }, PROFILE.resource)
     const order = steps.map((step) => step.layerId)
     const phase: Record<string, RunPhase> = {}
     for (const step of steps) phase[step.layerId] = step.async ? 'async' : 'sync'
@@ -465,7 +378,7 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
                 logs.push({
                   level: 'success',
                   source: 'response',
-                  message: responseMessage(kind, writeStrategy, responseMs, hasAsync),
+                  message: responseMessage(kind, responseMs, cacheWarm, redisOn),
                 })
               }
 
@@ -504,7 +417,7 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
                   {
                     level: 'info',
                     source: 'propagação',
-                    message: `Propagação concluída (+${extra} ms) fora do tempo da resposta — evento, projeção e cache`,
+                    message: `Propagação concluída (+${extra} ms) fora da resposta — IDR gravou no SQL e invalidou o Redis`,
                   },
                 ])
               : state.logs,
@@ -620,6 +533,7 @@ export const useDeliveryStore = create<DeliveryState>((set, get) => ({
       responseMs: 0,
       totalMs: 0,
       cacheWarm: false,
+      redisOn: true,
       insightCached: false,
       pipelineRunning: false,
       pipelineStates: idlePipeline(),

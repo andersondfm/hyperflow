@@ -40,8 +40,27 @@ export function LifetimesLayout() {
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         <main className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4">
-          <p className="mb-4 max-w-3xl text-[13px] leading-relaxed text-slate-400">
-            O lifetime diz quanto tempo o objeto vive. Na API REST isso é o tempo da request, ou o tempo do processo. Escolher errado ou vaza dado entre usuários, ou esgota conexão.
+          <p className="mb-4 max-w-3xl text-[13px] leading-relaxed text-slate-300">
+            Monólito e microsserviço usam os mesmos três lifetimes. Não existe um “melhor para microserviço”. O que muda é o processo: no monólito o Singleton é da aplicação inteira; no microsserviço ele é só daquele serviço.
+          </p>
+
+          <div className="mb-4 grid gap-2 md:grid-cols-2">
+            <article className="rounded-xl border border-slate-800 bg-slate-900/40 p-3">
+              <p className="font-mono text-[10px] uppercase tracking-wider text-slate-500">Monólito</p>
+              <p className="mt-1 text-[13px] leading-snug text-slate-300">
+                Uma API, um processo. O handler e o DbContext continuam Scoped, um por request. O Singleton do Redis e do cache vale para todos os módulos. Se um módulo guarda estado ali, o outro vê.
+              </p>
+            </article>
+            <article className="rounded-xl border border-slate-800 bg-slate-900/40 p-3">
+              <p className="font-mono text-[10px] uppercase tracking-wider text-slate-500">Microsserviço</p>
+              <p className="mt-1 text-[13px] leading-snug text-slate-300">
+                Cada serviço é um processo. O Scoped continua sendo a request daquele serviço. O Singleton não atravessa a rede: o cache do serviço de pedidos não é o cache do serviço de estoque.
+              </p>
+            </article>
+          </div>
+
+          <p className="mb-3 text-[13px] leading-snug text-slate-400">
+            Na API REST, o padrão é Scoped. Singleton só para infraestrutura do processo. Transient só para objeto sem estado e barato de criar.
           </p>
 
           <div className="mb-4 flex flex-wrap gap-2">

@@ -42,6 +42,7 @@ export function ApiGatewayNode({ id, data }: NodeProps) {
         tone={isLoadActive && !rateLimited ? 'amber' : 'cyan'}
       />
       <MetricRow label="Conexões" value={formatNumber(metrics.activeConnections)} />
+      <MetricRow label="DI na API" value="Scoped / request" tone="success" />
       <MetricRow
         label={rateLimited ? 'Throttle 429' : 'Error rate'}
         value={`${formatNumber(metrics.errorRate, 1)}%`}

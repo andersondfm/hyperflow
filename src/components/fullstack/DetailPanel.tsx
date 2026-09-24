@@ -1,4 +1,5 @@
-import { Cloud, Sparkles } from 'lucide-react'
+import { useCallback, useState } from 'react'
+import { ChevronsRight, Cloud, PanelRight, Sparkles } from 'lucide-react'
 import {
   CLOUD_LABEL,
   CloudProviders,
@@ -9,11 +10,30 @@ import {
 import { useDeliveryStore } from '@/store/deliveryStore'
 import { cn } from '@/lib/utils'
 
+const DETAIL_VISIBLE_KEY = 'hyperflow.fullstack.detail'
+
+function readDetailVisible(): boolean {
+  try {
+    const raw = window.localStorage.getItem(DETAIL_VISIBLE_KEY)
+    if (raw === null) return true
+    return raw === '1' || raw === 'true'
+  } catch {
+    return true
+  }
+}
+
+function writeDetailVisible(visible: boolean): void {
+  try {
+    window.localStorage.setItem(DETAIL_VISIBLE_KEY, visible ? '1' : '0')
+  } catch {
+    // preference stays in memory for this session
+  }
+}
+
 const DEMO_SCRIPT: readonly string[] = [
-  `GET /${PROFILE.resource} — cache frio, cai no read model`,
-  'GET de novo — Redis HIT, latência despenca',
-  'POST — domínio valida, SQL Server confirma, evento no broker projeta o Mongo',
-  'Insight com IA — contexto do Mongo + OpenAI, resposta cacheada',
+  `POST /${PROFILE.resource} — BFF, validador, Kafka devolve 202`,
+  'IDR consome o tópico e grava no SQL fora da resposta',
+  `GET /${PROFILE.resource} — BFF pergunta o Redis; se não tiver, lê o SQL`,
   'Abrir Pull Request — o quality gate reprova',
   'Escrever teste primeiro (TDD) — rodar de novo, deploy sai',
 ]
@@ -22,12 +42,33 @@ export function DetailPanel() {
   const selectedId = useDeliveryStore((s) => s.selectedId)
   const cloud = useDeliveryStore((s) => s.cloud)
   const logs = useDeliveryStore((s) => s.logs)
+  const [visible, setVisible] = useState(readDetailVisible)
+  const setDetailVisible = useCallback((next: boolean) => {
+    setVisible(next)
+    writeDetailVisible(next)
+  }, [])
+
+  if (!visible) {
+    return (
+      <button
+        type="button"
+        onClick={() => setDetailVisible(true)}
+        title="Mostrar painel"
+        className="inline-flex shrink-0 items-center gap-1.5 self-start rounded-lg border border-slate-700 bg-slate-950/90 px-2.5 py-1.5 text-[11px] font-semibold text-slate-200 hover:border-slate-500 lg:m-2"
+      >
+        <PanelRight className="h-3.5 w-3.5 text-cyan-300" />
+        Painel
+      </button>
+    )
+  }
 
   const layer = RUNTIME_LAYERS.find((item) => item.id === selectedId)
   const step = PIPELINE_STEPS.find((item) => item.id === selectedId)
 
   const title = layer?.title ?? step?.title ?? null
-  const subtitle = layer ? `${layer.layer} · ${layer.tech}` : (step?.subtitle ?? null)
+  const subtitle = layer
+    ? `${layer.layer} · ${layer.tech} · DI ${layer.di}`
+    : (step?.subtitle ?? null)
   const bullets = layer?.bullets ?? step?.bullets ?? null
   const tags = layer?.tags ?? step?.tags ?? null
   const cloudLine = layer?.cloud[cloud] ?? step?.cloud[cloud] ?? null
@@ -35,9 +76,20 @@ export function DetailPanel() {
   return (
     <aside className="flex h-56 shrink-0 flex-col border-t border-slate-800 bg-slate-950/90 lg:h-auto lg:w-80 lg:border-l lg:border-t-0">
       <div className="border-b border-slate-800 px-4 py-3">
-        <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500">
-          {title ? 'Camada selecionada' : 'Roteiro'}
-        </p>
+        <div className="flex items-center justify-between gap-2">
+          <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500">
+            {title ? 'Camada selecionada' : 'Roteiro'}
+          </p>
+          <button
+            type="button"
+            onClick={() => setDetailVisible(false)}
+            title="Ocultar"
+            className="inline-flex shrink-0 items-center gap-0.5 rounded-md border border-slate-700 bg-slate-900/80 px-1.5 py-0.5 text-[9px] font-medium text-slate-300 hover:border-slate-500 hover:text-slate-100"
+          >
+            Ocultar
+            <ChevronsRight className="h-3 w-3" />
+          </button>
+        </div>
         <h2 className="mt-0.5 font-display text-sm font-semibold text-slate-100">
           {title ?? 'Demo em 2 minutos'}
         </h2>

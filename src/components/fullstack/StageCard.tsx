@@ -11,6 +11,7 @@ interface StageCardProps {
   detail?: string
   /** Marca etapas que rodam fora do tempo da resposta HTTP. */
   badge?: string
+  di?: string
   selected: boolean
   onSelect: () => void
 }
@@ -47,6 +48,7 @@ export function StageCard({
   note,
   detail,
   badge,
+  di,
   selected,
   onSelect,
 }: StageCardProps) {
@@ -92,6 +94,11 @@ export function StageCard({
       <p className="truncate font-mono text-[9px] uppercase tracking-wider text-slate-500">
         {subtitle}
       </p>
+      {di && (
+        <p className="mt-0.5 truncate font-mono text-[9px] font-semibold uppercase tracking-wider text-sky-300">
+          DI · {di}
+        </p>
+      )}
 
       <div className="mt-1 flex items-center justify-between gap-1">
         <span className={cn('font-mono text-[9px] font-semibold uppercase', noteTone[state])}>

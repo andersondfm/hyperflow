@@ -12,7 +12,7 @@ export const PROFILE = {
   /** Recurso usado no exemplo de request — troque para o domínio da vaga (faturas, notas...). */
   resource: 'pedidos',
   tagline:
-    '20+ anos de engenharia: do componente React ao índice do SQL Server — com mensageria, teste, quality gate e deploy no caminho.',
+    'Micro frontend React fala só com o BFF .NET 8. O validador devolve ok, o BFF publica no Kafka, o IDR grava no SQL Server.',
   highlights: [
     '.NET 8/9 e ASP.NET Core com Clean Architecture, SOLID, DDD e TDD',
     'Mensageria distribuída: RabbitMQ para fila, Kafka quando preciso de replay',
@@ -85,8 +85,6 @@ export type LayerIconKey =
   | 'messaging'
   | 'redis'
   | 'sql'
-  | 'mongo'
-  | 'ai'
 
 export interface RuntimeLayer {
   id: string
@@ -94,6 +92,8 @@ export interface RuntimeLayer {
   /** Camada na linguagem de DDD / Clean Architecture. */
   layer: string
   tech: string
+  /** Lifetime do objeto .NET desta camada. Vazio no que não passa pelo container. */
+  di: string
   icon: LayerIconKey
   /** Latência simulada em ms. */
   baseMs: number
@@ -108,16 +108,17 @@ export interface RuntimeLayer {
 export const RUNTIME_LAYERS: readonly RuntimeLayer[] = [
   {
     id: 'react',
-    title: 'React SPA',
-    layer: 'Apresentação',
-    tech: 'React 19 + TypeScript (também Angular 17)',
+    title: 'Micro frontend',
+    layer: 'React',
+    tech: 'React + TypeScript',
+    di: 'fora do .NET',
     icon: 'react',
     baseMs: 14,
     kinds: [RequestKinds.Read, RequestKinds.Write, RequestKinds.Insight],
     bullets: [
-      'Componente burro: estado de servidor separado do estado de UI',
-      'Formulário valida no cliente, mas a regra de verdade mora no domínio',
-      'Carregamento, erro e estado vazio são requisito, não detalhe',
+      'O browser só conhece o BFF. Não chama Kafka, não chama SQL, não chama o IDR.',
+      'Micro frontend isola o time de tela do contrato dos outros serviços.',
+      'Validação de formulário aqui é conforto. A regra que barra o evento mora no validador.',
     ],
     cloud: {
       [CloudProviders.Azure]: 'Static Web Apps + Front Door',
@@ -128,16 +129,17 @@ export const RUNTIME_LAYERS: readonly RuntimeLayer[] = [
   },
   {
     id: 'api',
-    title: 'API .NET',
-    layer: 'Borda / Contrato',
-    tech: 'ASP.NET Core · .NET 8/9',
+    title: 'BFF',
+    layer: 'API REST .NET 8',
+    tech: 'ASP.NET Core · .NET 8',
+    di: 'Scoped',
     icon: 'api',
     baseMs: 5,
     kinds: [RequestKinds.Read, RequestKinds.Write, RequestKinds.Insight],
     bullets: [
-      'DTO de entrada e saída — entidade de domínio não vaza pela API',
-      'Validação no contrato, erro em ProblemDetails, versionamento na rota',
-      'JWT e rate limit antes de qualquer regra rodar',
+      'Backend for Frontend: um contrato feito para a tela, não o domínio cru.',
+      'Autentica, agrega e encaminha. Não grava no SQL Server.',
+      'Se o validador devolve ok, o BFF publica no Kafka. Se recusa, o tópico não recebe nada.',
     ],
     cloud: {
       [CloudProviders.Azure]: 'App Service / Container Apps + APIM',
@@ -148,58 +150,82 @@ export const RUNTIME_LAYERS: readonly RuntimeLayer[] = [
   },
   {
     id: 'application',
-    title: 'Application',
-    layer: 'Caso de uso',
-    tech: 'Handler CQRS + Unit of Work',
+    title: 'Validador',
+    layer: 'Regra antes do tópico',
+    tech: 'Serviço sem estado',
+    di: 'Transient',
     icon: 'application',
     baseMs: 4,
-    kinds: [RequestKinds.Read, RequestKinds.Write, RequestKinds.Insight],
+    kinds: [RequestKinds.Write],
     bullets: [
-      'Orquestra o caso de uso — não decide regra de negócio',
-      'Transação, idempotência e publicação de evento vivem aqui',
-      'Command separado de Query: escrita e leitura têm modelos diferentes',
+      'Transient: não guarda estado e não conhece o Kafka. Só devolve ok ou erro para o BFF.',
+      'Quem publica é o BFF, depois desse retorno. O validador não abre conexão com o tópico.',
+      'Payload inválido morre aqui. A tela recebe a recusa na hora, sem esperar o SQL.',
     ],
     cloud: {
       [CloudProviders.Azure]: 'mesma imagem de container',
       [CloudProviders.Aws]: 'mesma imagem de container',
       [CloudProviders.DigitalOcean]: 'mesma imagem de container',
     },
-    tags: ['Clean Architecture', 'CQRS', 'SOLID'],
+    tags: ['Validação', 'Contrato'],
+  },
+  {
+    id: 'messaging',
+    title: 'Kafka',
+    layer: 'Tópico',
+    tech: 'Produtor no BFF, consumidor no IDR',
+    di: 'conexão Singleton',
+    icon: 'messaging',
+    baseMs: 6,
+    kinds: [RequestKinds.Write],
+    bullets: [
+      'O BFF publica e devolve 202. O SQL ainda não gravou. Isso é consistência eventual, assumida de propósito.',
+      'O tópico desacopla a tela do banco: pico de POST não vira pico de conexão no SQL.',
+      'Replay existe. Se o IDR cair, ele continua do offset. Por isso o consumidor tem que ser idempotente.',
+      'Partição define ordem. Fora da mesma chave, ordem não é promessa.',
+    ],
+    cloud: {
+      [CloudProviders.Azure]: 'Event Hubs (protocolo Kafka)',
+      [CloudProviders.Aws]: 'Amazon MSK',
+      [CloudProviders.DigitalOcean]: 'Kafka em Droplet / DOKS',
+    },
+    tags: ['Kafka', 'Assíncrono'],
   },
   {
     id: 'domain',
-    title: 'Domain',
-    layer: 'Núcleo (DDD)',
-    tech: 'Agregado, Entidade, Value Object',
+    title: 'IDR',
+    layer: 'Consumidor',
+    tech: 'Worker .NET no tópico',
+    di: 'Scoped por mensagem',
     icon: 'domain',
     baseMs: 2,
     kinds: [RequestKinds.Write],
     bullets: [
-      'A invariante é garantida aqui — objeto inválido não existe',
-      'Sem EF Core, sem HttpClient: o domínio não conhece infraestrutura',
-      'Nome de classe é nome do negócio (linguagem ubíqua)',
-      'É a camada que eu escrevo com teste primeiro — TDD paga aqui',
+      'É o único que abre transação no SQL Server.',
+      'Consome o tópico, grava, commita o offset depois da gravação confirmada.',
+      'Se a mesma mensagem chegar de novo, a chave de idempotência impede linha duplicada.',
+      'Scoped por mensagem: um DbContext por registro processado, não um contexto para o processo inteiro.',
     ],
     cloud: {
       [CloudProviders.Azure]: 'independente de nuvem',
       [CloudProviders.Aws]: 'independente de nuvem',
       [CloudProviders.DigitalOcean]: 'independente de nuvem',
     },
-    tags: ['DDD', 'TDD', 'SOLID'],
+    tags: ['Consumidor', 'Idempotência'],
   },
   {
     id: 'sqlserver',
     title: 'SQL Server',
     layer: 'Persistência transacional',
     tech: 'EF Core + migrations',
+    di: 'Scoped',
     icon: 'sql',
     baseMs: 21,
-    kinds: [RequestKinds.Write],
+    kinds: [RequestKinds.Read, RequestKinds.Write],
     bullets: [
-      'Fonte da verdade da escrita: transação, constraint e índice',
-      'Migration versionada no repositório e aplicada no deploy',
-      'Consulta olhada no plano de execução — N+1 não passa em review',
-      'Mesmo raciocínio quando o legado é Oracle ou MySQL',
+      'Quem grava é o IDR, não o BFF. Quem lê para a tela é o BFF, em cima do que já foi commitado.',
+      'Migration versionada no repositório e aplicada no deploy.',
+      'A leitura pode chegar um instante antes da gravação. A tela precisa saber disso.',
     ],
     cloud: {
       [CloudProviders.Azure]: 'Azure SQL Database',
@@ -209,90 +235,25 @@ export const RUNTIME_LAYERS: readonly RuntimeLayer[] = [
     tags: ['SQL Server', 'EF Core'],
   },
   {
-    id: 'messaging',
-    title: 'RabbitMQ / Kafka',
-    layer: 'Mensageria',
-    tech: 'Outbox + consumidor idempotente',
-    icon: 'messaging',
-    baseMs: 6,
-    kinds: [RequestKinds.Write],
-    bullets: [
-      'Publicar antes do commit é evento fantasma: anuncia o que talvez não exista',
-      'Outbox grava o evento na mesma transação do dado — depois o dispatcher publica',
-      'Consumidor idempotente: reprocessar não duplica efeito',
-      'RabbitMQ para trabalho por fila; Kafka quando preciso de replay e ordem por partição',
-      'Fila primeiro é o oposto: aceito, devolvo 202 e o worker persiste — absorve pico',
-      'DLQ com política de retry — mensagem ruim não trava o consumidor',
-    ],
-    cloud: {
-      [CloudProviders.Azure]: 'Service Bus / Event Hubs (Kafka)',
-      [CloudProviders.Aws]: 'SQS / Amazon MSK (Kafka)',
-      [CloudProviders.DigitalOcean]: 'RabbitMQ em DOKS / Droplet',
-    },
-    tags: ['RabbitMQ', 'Kafka', 'Resiliência'],
-  },
-  {
-    id: 'mongo',
-    title: 'MongoDB',
-    layer: 'Read model / projeção',
-    tech: 'Documento pronto para a tela',
-    icon: 'mongo',
-    baseMs: 7,
-    kinds: [RequestKinds.Read, RequestKinds.Write, RequestKinds.Insight],
-    bullets: [
-      'Leitura sai de um documento já montado — sem join caro',
-      'Projeção atualizada pelo evento de domínio da escrita',
-      'Consistência eventual assumida no contrato, não escondida',
-    ],
-    cloud: {
-      [CloudProviders.Azure]: 'Cosmos DB for MongoDB',
-      [CloudProviders.Aws]: 'DocumentDB',
-      [CloudProviders.DigitalOcean]: 'Managed MongoDB',
-    },
-    tags: ['MongoDB', 'CQRS'],
-  },
-  {
     id: 'redis',
     title: 'Redis',
-    layer: 'Infra · Cache-aside',
-    tech: 'StackExchange.Redis',
+    layer: 'Melhoria na leitura',
+    tech: 'Cache do BFF',
+    di: 'Singleton',
     icon: 'redis',
     baseMs: 2,
-    kinds: [RequestKinds.Read, RequestKinds.Write, RequestKinds.Insight],
+    kinds: [RequestKinds.Read, RequestKinds.Write],
     bullets: [
-      'Cache-aside: procura no cache, cai na fonte, popula de volta',
-      'TTL curto + invalidação por evento — cache velho é bug silencioso',
-      'Chave versionada para não servir contrato antigo depois do deploy',
-      'No fluxo de IA, guarda a resposta: mesma pergunta não paga token duas vezes',
+      'Não entra na frente do SQL na escrita. A escrita continua terminando no banco.',
+      'Na leitura, o BFF pergunta o Redis antes do SQL. Hit devolve na hora.',
+      'Depois que o IDR commita, ele invalida a chave. Cache velho é bug.',
     ],
     cloud: {
       [CloudProviders.Azure]: 'Azure Cache for Redis',
       [CloudProviders.Aws]: 'ElastiCache (Redis)',
       [CloudProviders.DigitalOcean]: 'Managed Redis',
     },
-    tags: ['Redis', 'Performance', 'FinOps'],
-  },
-  {
-    id: 'ai',
-    title: 'IA · OpenAI',
-    layer: 'Insight (WorkBia)',
-    tech: 'GPT + prompt engineering + NLP',
-    icon: 'ai',
-    baseMs: 890,
-    kinds: [RequestKinds.Insight],
-    bullets: [
-      'Prompt é código: versionado, revisado em PR e testado com caso de regressão',
-      'Saída validada contra schema antes de virar dado — não confio no texto cru',
-      'Timeout, retry e fallback: IA fora do ar não derruba o fluxo do usuário',
-      'Custo por token é requisito — cache e limite de contexto entram no design',
-      'É o coração do WorkBia: dado bruto do ERP virando decisão de negócio',
-    ],
-    cloud: {
-      [CloudProviders.Azure]: 'Azure OpenAI Service',
-      [CloudProviders.Aws]: 'Amazon Bedrock / OpenAI API',
-      [CloudProviders.DigitalOcean]: 'OpenAI API direto (sem serviço gerenciado)',
-    },
-    tags: ['OpenAI', 'NLP', 'Prompt Engineering'],
+    tags: ['Redis', 'Leitura'],
   },
 ] as const
 
