@@ -4,6 +4,7 @@ export const Views = {
   Architect: 'architect',
   FullStack: 'fullstack',
   Challenge: 'challenge',
+  Lifetimes: 'lifetimes',
 } as const
 
 export type ViewId = (typeof Views)[keyof typeof Views]
@@ -18,7 +19,13 @@ interface ViewState {
 function initialView(): ViewId {
   if (typeof window === 'undefined') return Views.Architect
   const saved = window.localStorage.getItem(STORAGE_KEY)
-  if (saved === Views.FullStack || saved === Views.Challenge) return saved
+  if (
+    saved === Views.FullStack ||
+    saved === Views.Challenge ||
+    saved === Views.Lifetimes
+  ) {
+    return saved
+  }
   return Views.Architect
 }
 

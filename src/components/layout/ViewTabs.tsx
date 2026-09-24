@@ -1,4 +1,4 @@
-import { Braces, Network, Timer } from 'lucide-react'
+import { Boxes, Braces, Network, Timer } from 'lucide-react'
 import { Views, useViewStore, type ViewId } from '@/store/viewStore'
 import { cn } from '@/lib/utils'
 
@@ -6,6 +6,7 @@ const TABS: ReadonlyArray<{ id: ViewId; label: string; short: string }> = [
   { id: Views.Architect, label: 'Arquitetura', short: 'Arq' },
   { id: Views.FullStack, label: 'Full Stack .NET + React', short: 'Full Stack' },
   { id: Views.Challenge, label: '1 milhão / 20 min', short: '20 min' },
+  { id: Views.Lifetimes, label: 'DI .NET 9', short: 'DI' },
 ]
 
 export function ViewTabs() {
@@ -17,7 +18,13 @@ export function ViewTabs() {
       {TABS.map((tab) => {
         const active = view === tab.id
         const Icon =
-          tab.id === Views.Architect ? Network : tab.id === Views.Challenge ? Timer : Braces
+          tab.id === Views.Architect
+            ? Network
+            : tab.id === Views.Challenge
+              ? Timer
+              : tab.id === Views.Lifetimes
+                ? Boxes
+                : Braces
         return (
           <button
             key={tab.id}
