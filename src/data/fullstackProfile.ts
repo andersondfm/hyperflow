@@ -244,16 +244,17 @@ export const RUNTIME_LAYERS: readonly RuntimeLayer[] = [
     baseMs: 2,
     kinds: [RequestKinds.Read, RequestKinds.Write],
     bullets: [
-      'Não entra na frente do SQL na escrita. A escrita continua terminando no banco.',
-      'Na leitura, o BFF pergunta o Redis antes do SQL. Hit devolve na hora.',
-      'Depois que o IDR commita, ele invalida a chave. Cache velho é bug.',
+      'Cache-aside: o GET olha a chave primeiro. Hit devolve na hora e o SQL não fica sabendo.',
+      'Miss: o BFF lê o SQL, devolve para a tela e grava a chave com TTL de 5 min.',
+      'Na escrita o IDR dá DEL, não atualiza o valor. O próximo GET é miss e repovoa com o dado novo.',
+      'O TTL é a rede de segurança: se o DEL falhar, a chave velha expira sozinha.',
     ],
     cloud: {
       [CloudProviders.Azure]: 'Azure Cache for Redis',
       [CloudProviders.Aws]: 'ElastiCache (Redis)',
       [CloudProviders.DigitalOcean]: 'Managed Redis',
     },
-    tags: ['Redis', 'Leitura'],
+    tags: ['Redis', 'Cache-aside', 'TTL'],
   },
 ] as const
 

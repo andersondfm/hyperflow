@@ -162,7 +162,7 @@ function buildRun(kind: RequestKind, _flags: RunOptions, resource: string): RunS
         log: {
           level: 'success',
           source: 'redis',
-          message: 'BFF respondeu do Redis. O SQL não foi consultado nesta leitura',
+          message: 'Cache-aside: hit. O BFF devolveu em 2 ms e o SQL não viu este GET',
         },
       })
       return steps
@@ -175,7 +175,7 @@ function buildRun(kind: RequestKind, _flags: RunOptions, resource: string): RunS
         log: {
           level: 'warn',
           source: 'redis',
-          message: 'Redis não tinha a chave. O BFF segue para o SQL e guarda a resposta',
+          message: 'Cache-aside: chave produto não está no Redis. O BFF segue para o SQL',
         },
       })
     }
@@ -189,6 +189,18 @@ function buildRun(kind: RequestKind, _flags: RunOptions, resource: string): RunS
         message: 'BFF lê o SQL do que o IDR já commitou. Kafka não entra na leitura',
       },
     })
+    if (_flags.redisOn) {
+      steps.push({
+        layerId: 'redis',
+        ms: layerMs('redis'),
+        note: 'SET · TTL 5 min',
+        log: {
+          level: 'success',
+          source: 'redis',
+          message: 'BFF devolveu o dado e gravou a chave com TTL de 5 min. Se o DEL falhar, ela expira sozinha',
+        },
+      })
+    }
     return steps
   }
 
@@ -236,7 +248,8 @@ function buildRun(kind: RequestKind, _flags: RunOptions, resource: string): RunS
       log: {
         level: 'warn',
         source: 'idr',
-        message: 'IDR invalidou a chave no Redis depois do commit. A próxima leitura não vê dado velho',
+        message:
+          'IDR fez DEL da chave depois do commit. Não atualiza o valor: o próximo GET é miss e repovoa',
       },
     })
   }
@@ -253,8 +266,8 @@ function responseMessage(
   if (kind === RequestKinds.Read) {
     if (!redisOn) return `200 OK em ~${responseMs} ms — o BFF leu o SQL direto`
     return readFromCache
-      ? `200 OK em ~${responseMs} ms — o BFF respondeu do Redis, sem ir ao SQL`
-      : `200 OK em ~${responseMs} ms — Redis não tinha a chave, o BFF leu o SQL e guardou`
+      ? `200 OK em ~${responseMs} ms — hit no Redis, o SQL não viu este GET`
+      : `200 OK em ~${responseMs} ms — miss, o BFF leu o SQL e gravou a chave com TTL de 5 min`
   }
   return `202 Accepted em ~${responseMs} ms — o IDR grava no SQL fora da resposta`
 }
